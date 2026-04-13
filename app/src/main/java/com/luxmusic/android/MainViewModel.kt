@@ -136,7 +136,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val removed = libraryStore.deletePlaylist(playlistId)
             messagesFlow.emit(
                 if (removed != null) {
-                    "Плейлист \"${removed.name}\" удалён."
+                    "Плейлист \"${removed.name}\" удален."
                 } else {
                     "Не удалось удалить плейлист."
                 },
@@ -150,7 +150,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val removed = libraryStore.deleteTrack(trackId)
             messagesFlow.emit(
                 if (removed != null) {
-                    "Трек \"${removed.title}\" удалён с устройства."
+                    "Трек \"${removed.title}\" удален с устройства."
                 } else {
                     "Не удалось удалить трек."
                 },
@@ -158,20 +158,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun playTrack(trackId: String) {
+    fun toggleLibraryTrack(trackId: String) {
         val queue = uiState.value.visibleTracks.ifEmpty { uiState.value.library }
         val index = queue.indexOfFirst { it.id == trackId }
         if (index >= 0) {
-            playbackController.playCollection(queue, index, "Библиотека")
+            playbackController.playOrToggleCollection(queue, index, "Библиотека")
         }
     }
+
+    fun playTrack(trackId: String) = toggleLibraryTrack(trackId)
 
     fun playPlaylist(playlistId: String) {
         val playlist = uiState.value.playlists.firstOrNull { it.id == playlistId } ?: return
         val tracksById = uiState.value.library.associateBy { it.id }
         val queue = playlist.trackIds.mapNotNull(tracksById::get)
         if (queue.isNotEmpty()) {
-            playbackController.playCollection(queue, 0, playlist.name)
+            playbackController.playOrToggleCollection(queue, 0, playlist.name)
         }
     }
 
@@ -181,7 +183,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val queue = playlist.trackIds.mapNotNull(tracksById::get)
         val startIndex = queue.indexOfFirst { it.id == trackId }
         if (startIndex >= 0) {
-            playbackController.playCollection(queue, startIndex, playlist.name)
+            playbackController.playOrToggleCollection(queue, startIndex, playlist.name)
         }
     }
 
@@ -204,6 +206,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val result = linkDownloader.download(normalized)
             result.onSuccess { imported ->
+                selectedTab.value = LuxTab.LIBRARY
                 messagesFlow.emit("Скачано и сохранено ${imported.size} трек(ов).")
             }.onFailure { error ->
                 messagesFlow.emit(error.message ?: "Не удалось скачать музыку по ссылке.")

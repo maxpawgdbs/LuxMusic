@@ -68,19 +68,24 @@ class PlaybackController(context: Context) {
         .setSmallIconResourceId(android.R.drawable.ic_media_play)
         .build().apply {
             setColorized(true)
-            setColor(0xFFF6B91A.toInt())
+            setColor(0xFF215EEA.toInt())
             setPriority(NotificationCompat.PRIORITY_LOW)
+            setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             setUseFastForwardAction(false)
             setUseRewindAction(false)
             setUseStopAction(false)
+            setUsePlayPauseActions(true)
             setUseNextActionInCompactView(true)
             setUsePreviousActionInCompactView(true)
+            setMediaSessionToken(mediaSession.platformToken)
             setPlayer(player)
         }
 
     val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
 
     init {
+        mediaSession.setSessionActivity(contentIntent())
+
         player.addListener(
             object : Player.Listener {
                 override fun onEvents(player: Player, events: Player.Events) {
@@ -98,10 +103,30 @@ class PlaybackController(context: Context) {
     }
 
     fun playCollection(tracks: List<Track>, startIndex: Int, queueTitle: String) {
-        if (tracks.isEmpty()) return
+        playOrToggleCollection(tracks, startIndex, queueTitle)
+    }
+
+    fun playOrToggleCollection(tracks: List<Track>, startIndex: Int, queueTitle: String) {
+        if (tracks.isEmpty() || startIndex !in tracks.indices) return
+
+        val sameQueue = currentQueue.map(Track::id) == tracks.map(Track::id)
+        val selectedTrack = tracks[startIndex]
+        val currentTrackId = player.currentMediaItem?.mediaId
+
+        if (sameQueue && currentTrackId == selectedTrack.id) {
+            togglePlayback()
+            return
+        }
 
         currentQueue = tracks
         currentQueueTitle = queueTitle
+
+        if (sameQueue && player.mediaItemCount == tracks.size) {
+            player.seekTo(startIndex, 0L)
+            player.play()
+            publishState()
+            return
+        }
 
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
@@ -228,7 +253,7 @@ class PlaybackController(context: Context) {
             Player.REPEAT_MODE_ALL -> "Повтор очереди"
             else -> "Без повтора"
         }
-        val shuffleLabel = if (player.shuffleModeEnabled) "Shuffle" else "По порядку"
+        val shuffleLabel = if (player.shuffleModeEnabled) "Случайно" else "По порядку"
         return "$repeatLabel • $shuffleLabel"
     }
 

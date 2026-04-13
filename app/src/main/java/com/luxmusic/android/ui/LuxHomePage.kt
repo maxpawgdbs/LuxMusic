@@ -97,10 +97,10 @@ internal fun LuxHomePage(
                     ) {
                         LuxStatChip(Icons.Rounded.LibraryMusic, uiState.library.size.toString(), "Треков")
                         LuxStatChip(Icons.AutoMirrored.Rounded.QueueMusic, uiState.playlists.size.toString(), "Плейлистов")
-                        LuxStatChip(Icons.Rounded.GraphicEq, formatDuration(uiState.playback.durationMs), "Длина")
+                        LuxStatChip(Icons.Rounded.GraphicEq, formatDuration(uiState.playback.durationMs), "Очередь")
                     }
                     Text(
-                        "Главная страница переведена на чистый Material Design 3 без декоративного фона и с одинаковыми карточками.",
+                        "Главная страница показывает активный плеер, текущую очередь и статус локальной коллекции без перегруженного фона.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -119,10 +119,13 @@ internal fun LuxHomePage(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Text("Очередь", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        uiState.playback.queueTitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(uiState.playback.queueTitle) },
+                        leadingIcon = {
+                            Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null)
+                        },
+                        colors = luxSelectedAssistChipColors(),
                     )
                     if (queueTracks.isEmpty()) {
                         Text(
@@ -173,7 +176,7 @@ private fun LuxPlayerCard(
         ) {
             Text(
                 text = "Сейчас играет",
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
 
@@ -184,7 +187,11 @@ private fun LuxPlayerCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                FilledTonalButton(onClick = onImportClick, modifier = Modifier.fillMaxWidth()) {
+                FilledTonalButton(
+                    onClick = onImportClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = luxTonalButtonColors(),
+                ) {
                     Icon(Icons.Rounded.UploadFile, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Добавить музыку")
@@ -193,7 +200,7 @@ private fun LuxPlayerCard(
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(124.dp))
+                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(128.dp))
                             LuxTrackMeta(track = currentTrack, queueTitle = uiState.playback.queueTitle)
                         }
                     } else {
@@ -201,7 +208,7 @@ private fun LuxPlayerCard(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(124.dp))
+                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(128.dp))
                             LuxTrackMeta(
                                 track = currentTrack,
                                 queueTitle = uiState.playback.queueTitle,
@@ -246,8 +253,9 @@ private fun LuxPlayerCard(
                     FilterChip(
                         selected = uiState.playback.shuffleEnabled,
                         onClick = onToggleShuffle,
-                        label = { Text("Случайно") },
+                        label = { Text("Случайный порядок") },
                         leadingIcon = { Icon(Icons.Rounded.Shuffle, contentDescription = null) },
+                        colors = luxFilterChipColors(),
                     )
                     FilterChip(
                         selected = uiState.playback.repeatMode != RepeatMode.NONE,
@@ -263,6 +271,7 @@ private fun LuxPlayerCard(
                                 contentDescription = null,
                             )
                         },
+                        colors = luxFilterChipColors(),
                     )
                 }
 
@@ -271,10 +280,16 @@ private fun LuxPlayerCard(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    FilledTonalIconButton(onClick = onSkipPrevious) {
+                    FilledTonalIconButton(
+                        onClick = onSkipPrevious,
+                        colors = luxTonalIconButtonColors(),
+                    ) {
                         Icon(Icons.Rounded.SkipPrevious, contentDescription = null)
                     }
-                    FilledIconButton(onClick = onTogglePlayback) {
+                    FilledIconButton(
+                        onClick = onTogglePlayback,
+                        colors = luxFilledIconButtonColors(),
+                    ) {
                         Icon(
                             if (uiState.playback.isPlaying) {
                                 Icons.Rounded.PauseCircleFilled
@@ -284,7 +299,10 @@ private fun LuxPlayerCard(
                             contentDescription = null,
                         )
                     }
-                    FilledTonalIconButton(onClick = onSkipNext) {
+                    FilledTonalIconButton(
+                        onClick = onSkipNext,
+                        colors = luxTonalIconButtonColors(),
+                    ) {
                         Icon(Icons.Rounded.SkipNext, contentDescription = null)
                     }
                 }
@@ -317,6 +335,7 @@ private fun LuxTrackMeta(
             onClick = { },
             label = { Text(queueTitle) },
             leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null) },
+            colors = luxAssistChipColors(),
         )
     }
 }

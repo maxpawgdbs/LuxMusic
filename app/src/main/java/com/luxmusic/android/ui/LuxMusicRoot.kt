@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -131,7 +132,9 @@ internal fun LuxMusicRoot(
                     NavigationBarItem(
                         selected = uiState.selectedTab == tab,
                         onClick = {
-                            if (tab != LuxTab.PLAYLISTS) openedPlaylistId = null
+                            if (tab != LuxTab.PLAYLISTS) {
+                                openedPlaylistId = null
+                            }
                             onSelectTab(tab)
                         },
                         icon = {
@@ -172,6 +175,7 @@ internal fun LuxMusicRoot(
                     query = uiState.searchQuery,
                     tracks = uiState.visibleTracks,
                     currentTrackId = uiState.currentTrack?.id,
+                    isPlaying = uiState.playback.isPlaying,
                     librarySize = uiState.library.size,
                     onQueryChange = onSearchChange,
                     onImportClick = onImportClick,
@@ -231,13 +235,14 @@ internal fun LuxMusicRoot(
                 )
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         onCreatePlaylist(createPlaylistName)
                         createPlaylistName = ""
                         showCreatePlaylist = false
                     },
                     enabled = createPlaylistName.isNotBlank(),
+                    colors = luxPrimaryButtonColors(),
                 ) {
                     Text("Создать")
                 }
@@ -426,7 +431,9 @@ internal fun LuxMusicRoot(
                     onClick = {
                         deleteTargetPlaylist?.let {
                             onDeletePlaylist(it.id)
-                            if (openedPlaylistId == it.id) openedPlaylistId = null
+                            if (openedPlaylistId == it.id) {
+                                openedPlaylistId = null
+                            }
                         }
                         deleteTargetPlaylist = null
                     },

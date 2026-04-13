@@ -1,12 +1,11 @@
 package com.luxmusic.android.download
 
 import android.content.Context
-import android.os.Environment
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.luxmusic.android.data.DownloadState
 import com.luxmusic.android.data.LibraryStore
 import com.luxmusic.android.data.Track
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +23,9 @@ class LinkDownloader(
     @Volatile
     private var initialized = false
 
+    @Volatile
+    private var extractorRefreshAttempted = false
+
     private val youtubeDl by lazy { YoutubeDL.getInstance() }
 
     fun initialize() {
@@ -32,12 +34,15 @@ class LinkDownloader(
         try {
             youtubeDl.init(context)
             initialized = true
-            mutableState.value = DownloadState()
+            mutableState.value = DownloadState(
+                isAvailable = true,
+                statusMessage = "Вставьте ссылку. LuxMusic попытается сохранить аудио локально на устройство.",
+            )
         } catch (error: Throwable) {
             mutableState.value = DownloadState(
                 isAvailable = false,
-                statusMessage = "Модуль загрузки пока недоступен на этом устройстве.",
-                errorMessage = error.message,
+                statusMessage = "Модуль загрузки не инициализировался. После обновления APK переустановите приложение и попробуйте снова.",
+                errorMessage = error.message ?: error::class.java.simpleName,
             )
         }
     }
@@ -46,50 +51,45 @@ class LinkDownloader(
         if (!initialized) initialize()
         if (!initialized) {
             return@withContext Result.failure(
-                IllegalStateException("Загрузчик не инициализирован. Проверьте yt-dlp модуль."),
+                IllegalStateException("Загрузчик не инициализирован. Проверьте модуль yt-dlp и переустановите APK."),
             )
         }
 
         val serviceLabel = detectService(url)
-
         val jobId = "luxmusic-${System.currentTimeMillis()}"
-        val baseDir = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir,
-            "luxmusic-downloads",
-        ).apply { mkdirs() }
+        val baseDir = File(context.cacheDir, "luxmusic-downloads").apply { mkdirs() }
         val jobDir = File(baseDir, jobId).apply { mkdirs() }
-
         val request = buildRequest(url, jobDir)
 
         mutableState.value = mutableState.value.copy(
             isRunning = true,
             progress = 0f,
-            statusMessage = "Пробуем обработать ссылку: $serviceLabel.",
+            statusMessage = "Подготавливаем загрузчик для $serviceLabel.",
             errorMessage = null,
         )
 
         runCatching {
-            mutableState.value = mutableState.value.copy(progress = 0.08f)
-            youtubeDl.execute(request, jobId) { progress, _, _ ->
+            if (!extractorRefreshAttempted) {
+                extractorRefreshAttempted = true
+                runCatching { youtubeDl.updateYoutubeDL(context) }
+            }
+
+            mutableState.value = mutableState.value.copy(
+                progress = 0.05f,
+                statusMessage = "Пробуем обработать ссылку: $serviceLabel.",
+            )
+
+            youtubeDl.execute(request, jobId) { progress, _, line ->
                 mutableState.value = mutableState.value.copy(
                     progress = progress.coerceIn(0f, 100f) / 100f,
+                    statusMessage = line.takeIf { it.isNotBlank() }
+                        ?: "Загружаем и сохраняем трек из $serviceLabel.",
                 )
             }
-            mutableState.value = mutableState.value.copy(progress = 0.92f)
 
             val files = jobDir.listFiles()?.toList().orEmpty()
             val audioFiles = files.filter { file ->
-                file.isFile && file.extension.lowercase() in setOf(
-                    "mp3",
-                    "m4a",
-                    "aac",
-                    "flac",
-                    "wav",
-                    "ogg",
-                    "opus",
-                    "webm",
-                    "mp4",
-                )
+                file.isFile && file.extension.lowercase() in SUPPORTED_AUDIO_EXTENSIONS
             }
 
             if (audioFiles.isEmpty()) {
@@ -120,6 +120,7 @@ class LinkDownloader(
                 progress = 1f,
                 statusMessage = "Сохранено ${imported.size} трек(ов) из $serviceLabel в офлайн-библиотеку.",
                 errorMessage = null,
+                isAvailable = true,
             )
 
             imported
@@ -129,6 +130,7 @@ class LinkDownloader(
                 progress = 0f,
                 statusMessage = "Не удалось обработать ссылку $serviceLabel.",
                 errorMessage = error.message ?: serviceFailureHint(serviceLabel),
+                isAvailable = initialized,
             )
         }.also {
             cleanup(jobDir)
@@ -146,6 +148,8 @@ class LinkDownloader(
         return YoutubeDLRequest(url)
             .addOption("-f", "bestaudio/best")
             .addOption("--no-playlist")
+            .addOption("--no-warnings")
+            .addOption("--newline")
             .addOption("--restrict-filenames")
             .addOption("--write-thumbnail")
             .addOption("--write-info-json")
@@ -171,8 +175,22 @@ class LinkDownloader(
     private fun serviceFailureHint(serviceLabel: String): String {
         return when (serviceLabel) {
             "Spotify", "Apple Music", "Яндекс Музыка", "VK / VK Музыка" ->
-                "Для этого сервиса загрузка зависит от доступности публичного extractor/provider и может временно не сработать."
+                "Для этого сервиса загрузка зависит от доступности публичного extractor и может временно не сработать."
             else -> "Не удалось скачать музыку по ссылке."
         }
+    }
+
+    private companion object {
+        val SUPPORTED_AUDIO_EXTENSIONS = setOf(
+            "mp3",
+            "m4a",
+            "aac",
+            "flac",
+            "wav",
+            "ogg",
+            "opus",
+            "webm",
+            "mp4",
+        )
     }
 }

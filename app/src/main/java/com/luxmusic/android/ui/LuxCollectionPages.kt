@@ -18,7 +18,9 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PauseCircleFilled
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircleFilled
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.UploadFile
@@ -62,6 +64,7 @@ internal fun LuxLibraryPage(
     query: String,
     tracks: List<Track>,
     currentTrackId: String?,
+    isPlaying: Boolean,
     librarySize: Int,
     onQueryChange: (String) -> Unit,
     onImportClick: () -> Unit,
@@ -87,7 +90,7 @@ internal fun LuxLibraryPage(
                 ) {
                     Text("Локальная библиотека", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "Сохранено $librarySize трек(ов) на устройстве. Импорт и воспроизведение работают прямо отсюда.",
+                        "Сохранено $librarySize трек(ов) на устройстве. Один тап по треку запускает или ставит его на паузу.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -99,7 +102,11 @@ internal fun LuxLibraryPage(
                         label = { Text("Поиск по библиотеке") },
                         singleLine = true,
                     )
-                    FilledTonalButton(onClick = onImportClick, modifier = Modifier.fillMaxWidth()) {
+                    FilledTonalButton(
+                        onClick = onImportClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = luxTonalButtonColors(),
+                    ) {
                         Icon(Icons.Rounded.UploadFile, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Импортировать аудио")
@@ -117,15 +124,22 @@ internal fun LuxLibraryPage(
             }
         } else {
             items(tracks, key = Track::id) { track ->
+                val isCurrent = currentTrackId == track.id
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = androidx.compose.material3.CardDefaults.elevatedCardColors(
-                        containerColor = if (currentTrackId == track.id) {
-                            MaterialTheme.colorScheme.secondaryContainer
+                        containerColor = if (isCurrent) {
+                            MaterialTheme.colorScheme.primaryContainer
                         } else {
                             MaterialTheme.colorScheme.surface
                         },
+                        contentColor = if (isCurrent) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                     ),
+                    onClick = { onPlay(track.id) },
                 ) {
                     Column(
                         modifier = Modifier
@@ -162,8 +176,18 @@ internal fun LuxLibraryPage(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            FilledTonalIconButton(onClick = { onPlay(track.id) }) {
-                                Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                            FilledTonalIconButton(
+                                onClick = { onPlay(track.id) },
+                                colors = luxTonalIconButtonColors(),
+                            ) {
+                                Icon(
+                                    if (isCurrent && isPlaying) {
+                                        Icons.Rounded.PauseCircleFilled
+                                    } else {
+                                        Icons.Rounded.PlayCircleFilled
+                                    },
+                                    contentDescription = null,
+                                )
                             }
                             IconButton(onClick = { onDelete(track) }) {
                                 Icon(
@@ -183,18 +207,21 @@ internal fun LuxLibraryPage(
                                     onClick = { onShowLyrics(track) },
                                     label = { Text("Текст") },
                                     leadingIcon = { Icon(Icons.Rounded.Subtitles, contentDescription = null) },
+                                    colors = luxAssistChipColors(),
                                 )
                             }
                             AssistChip(
                                 onClick = { onAddToPlaylist(track) },
                                 label = { Text("В плейлист") },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null) },
+                                colors = luxAssistChipColors(),
                             )
                             if (!track.sourceUrl.isNullOrBlank()) {
                                 AssistChip(
-                                    onClick = { },
+                                    onClick = {},
                                     label = { Text("Скачан по ссылке") },
                                     leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
+                                    colors = luxSelectedAssistChipColors(),
                                 )
                             }
                         }
@@ -221,7 +248,7 @@ internal fun LuxPlaylistsPage(
         item {
             LuxInfoCard(
                 title = "Плейлисты",
-                body = "Открывайте подборки, добавляйте в них треки из библиотеки и запускайте с любого места.",
+                body = "Открывайте подборки, добавляйте в них треки из библиотеки и запускайте воспроизведение с любого места.",
             )
         }
 
@@ -264,7 +291,10 @@ internal fun LuxPlaylistsPage(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            FilledTonalButton(onClick = { onPlayPlaylist(playlist.id) }) {
+                            FilledTonalButton(
+                                onClick = { onPlayPlaylist(playlist.id) },
+                                colors = luxTonalButtonColors(),
+                            ) {
                                 Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Играть")
@@ -281,10 +311,11 @@ internal fun LuxPlaylistsPage(
                                 )
                             }
                         }
-                        Text(
-                            "Открыть плейлист",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
+                        AssistChip(
+                            onClick = { onOpenPlaylist(playlist.id) },
+                            label = { Text("Открыть плейлист") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null) },
+                            colors = luxAssistChipColors(),
                         )
                     }
                 }
@@ -296,6 +327,7 @@ internal fun LuxPlaylistsPage(
                 onClick = onCreatePlaylist,
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                colors = luxPrimaryButtonColors(),
             ) {
                 Icon(Icons.Rounded.AddCircleOutline, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -340,7 +372,10 @@ internal fun LuxPlaylistDetailPage(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        FilledTonalButton(onClick = onPlayPlaylist) {
+                        FilledTonalButton(
+                            onClick = onPlayPlaylist,
+                            colors = luxTonalButtonColors(),
+                        ) {
                             Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Играть всё")
@@ -400,7 +435,10 @@ internal fun LuxPlaylistDetailPage(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        FilledTonalIconButton(onClick = { onPlayTrack(track.id) }) {
+                        FilledTonalIconButton(
+                            onClick = { onPlayTrack(track.id) },
+                            colors = luxTonalIconButtonColors(),
+                        ) {
                             Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                         }
                     }
@@ -435,7 +473,7 @@ internal fun LuxDownloadPage(
                 ) {
                     Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "LuxMusic пытается сохранить аудио локально на устройство. Результат зависит от extractor-модуля и доступности исходного сервиса.",
+                        "Поддерживаются YouTube, SoundCloud и TikTok. Для Spotify, Apple Music, VK и Яндекс Музыки загрузка работает в режиме best effort и зависит от extractor-модуля.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -443,11 +481,16 @@ internal fun LuxDownloadPage(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        downloadServices.forEach { service ->
+                        downloadServices.forEachIndexed { index, service ->
                             AssistChip(
-                                onClick = { },
+                                onClick = {},
                                 label = { Text(service) },
                                 leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
+                                colors = if (index < 3) {
+                                    luxSelectedAssistChipColors()
+                                } else {
+                                    luxAssistChipColors()
+                                },
                             )
                         }
                     }
@@ -465,6 +508,7 @@ internal fun LuxDownloadPage(
                         enabled = !uiState.download.isRunning && url.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                        colors = luxPrimaryButtonColors(),
                     ) {
                         Icon(Icons.Rounded.DownloadForOffline, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
