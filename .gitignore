@@ -1,0 +1,12 @@
+.gradle/
+.idea/
+build/
+captures/
+local.properties
+app/build/
+.cxx/
+.externalNativeBuild/
+.deps/
+.tmp/
+.venv/
+
