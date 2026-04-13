@@ -29,7 +29,9 @@ class LibraryStore(private val context: Context) {
     suspend fun importUris(uris: List<Uri>): List<Track> = withContext(Dispatchers.IO) {
         buildList {
             for (uri in uris) {
-                importUriInternal(uri)?.let(::add)
+                runCatching { importUriInternal(uri) }
+                    .getOrNull()
+                    ?.let(::add)
             }
         }
     }
@@ -41,12 +43,14 @@ class LibraryStore(private val context: Context) {
     ): List<Track> = withContext(Dispatchers.IO) {
         buildList {
             for (audio in audioFiles) {
-                importFileInternal(
-                    sourceFile = audio,
-                    displayName = audio.name,
-                    sourceUrl = sourceUrl,
-                    companionFiles = companionResolver(audio),
-                )?.let(::add)
+                runCatching {
+                    importFileInternal(
+                        sourceFile = audio,
+                        displayName = audio.name,
+                        sourceUrl = sourceUrl,
+                        companionFiles = companionResolver(audio),
+                    )
+                }.getOrNull()?.let(::add)
             }
         }
     }
@@ -83,6 +87,15 @@ class LibraryStore(private val context: Context) {
         }
     }
 
+    suspend fun deletePlaylist(playlistId: String): Playlist? = withContext(Dispatchers.IO) {
+        writeMutex.withLock {
+            val current = mutableSnapshot.value
+            val removed = current.playlists.firstOrNull { it.id == playlistId } ?: return@withLock null
+            persist(current.copy(playlists = current.playlists.filterNot { it.id == playlistId }))
+            removed
+        }
+    }
+
     suspend fun deleteTrack(trackId: String): Track? = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val current = mutableSnapshot.value
@@ -106,7 +119,16 @@ class LibraryStore(private val context: Context) {
 
     private suspend fun importUriInternal(uri: Uri): Track? {
         val displayName = queryDisplayName(uri) ?: "track-${System.currentTimeMillis()}.mp3"
-        val extension = displayName.substringAfterLast('.', "").lowercase()
+        val mimeType = context.contentResolver.getType(uri).orEmpty()
+        val extension = displayName.substringAfterLast('.', "").ifBlank {
+            when (mimeType.lowercase()) {
+                "audio/flac" -> "flac"
+                "audio/wav", "audio/x-wav" -> "wav"
+                "audio/ogg", "application/ogg" -> "ogg"
+                "audio/mp4", "audio/aac", "audio/aacp" -> "m4a"
+                else -> "mp3"
+            }
+        }.lowercase()
         val sourceFile = File(tracksDir, "incoming-${UUID.randomUUID()}.$extension")
 
         context.contentResolver.openInputStream(uri)?.use { input ->

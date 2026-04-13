@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 enum class LuxTab {
+    HOME,
     LIBRARY,
     PLAYLISTS,
     DOWNLOAD,
@@ -27,7 +28,7 @@ data class LuxMusicUiState(
     val library: List<Track> = emptyList(),
     val visibleTracks: List<Track> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
-    val selectedTab: LuxTab = LuxTab.LIBRARY,
+    val selectedTab: LuxTab = LuxTab.HOME,
     val searchQuery: String = "",
     val playback: PlaybackState = PlaybackState(),
     val currentTrack: Track? = null,
@@ -41,7 +42,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val linkDownloader = luxApp.linkDownloader
 
     private val searchQuery = MutableStateFlow("")
-    private val selectedTab = MutableStateFlow(LuxTab.LIBRARY)
+    private val selectedTab = MutableStateFlow(LuxTab.HOME)
     private val messagesFlow = MutableSharedFlow<String>()
 
     val messages = messagesFlow.asSharedFlow()
@@ -92,6 +93,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             val imported = libraryStore.importUris(uris)
+            if (imported.isNotEmpty()) {
+                selectedTab.value = LuxTab.LIBRARY
+            }
             messagesFlow.emit(
                 if (imported.isEmpty()) {
                     "Не удалось импортировать выбранные файлы."
@@ -108,6 +112,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             libraryStore.createPlaylist(normalized)
+            selectedTab.value = LuxTab.PLAYLISTS
             messagesFlow.emit("Плейлист \"$normalized\" создан.")
         }
     }
@@ -121,6 +126,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "Трек добавлен в \"$playlistName\"."
                 } else {
                     "Трек добавлен в плейлист."
+                },
+            )
+        }
+    }
+
+    fun deletePlaylist(playlistId: String) {
+        viewModelScope.launch {
+            val removed = libraryStore.deletePlaylist(playlistId)
+            messagesFlow.emit(
+                if (removed != null) {
+                    "Плейлист \"${removed.name}\" удалён."
+                } else {
+                    "Не удалось удалить плейлист."
                 },
             )
         }
@@ -154,6 +172,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val queue = playlist.trackIds.mapNotNull(tracksById::get)
         if (queue.isNotEmpty()) {
             playbackController.playCollection(queue, 0, playlist.name)
+        }
+    }
+
+    fun playPlaylistTrack(playlistId: String, trackId: String) {
+        val playlist = uiState.value.playlists.firstOrNull { it.id == playlistId } ?: return
+        val tracksById = uiState.value.library.associateBy { it.id }
+        val queue = playlist.trackIds.mapNotNull(tracksById::get)
+        val startIndex = queue.indexOfFirst { it.id == trackId }
+        if (startIndex >= 0) {
+            playbackController.playCollection(queue, startIndex, playlist.name)
         }
     }
 

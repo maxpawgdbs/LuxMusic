@@ -60,8 +60,10 @@ fun LuxMusicScreen(
     onCreatePlaylist: (String) -> Unit,
     onAddTrackToPlaylist: (String, String) -> Unit,
     onDeleteTrack: (String) -> Unit,
+    onDeletePlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
     onPlayPlaylist: (String) -> Unit,
+    onPlayPlaylistTrack: (String, String) -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -70,6 +72,29 @@ fun LuxMusicScreen(
     onSeekToFraction: (Float) -> Unit,
     onDownloadLink: (String) -> Unit,
 ) {
+    LuxMusicRoot(
+        uiState = uiState,
+        snackbarHostState = snackbarHostState,
+        onSelectTab = onSelectTab,
+        onSearchChange = onSearchChange,
+        onImportClick = onImportClick,
+        onCreatePlaylist = onCreatePlaylist,
+        onAddTrackToPlaylist = onAddTrackToPlaylist,
+        onDeleteTrack = onDeleteTrack,
+        onDeletePlaylist = onDeletePlaylist,
+        onPlayTrack = onPlayTrack,
+        onPlayPlaylist = onPlayPlaylist,
+        onPlayPlaylistTrack = onPlayPlaylistTrack,
+        onTogglePlayback = onTogglePlayback,
+        onSkipPrevious = onSkipPrevious,
+        onSkipNext = onSkipNext,
+        onToggleShuffle = onToggleShuffle,
+        onCycleRepeat = onCycleRepeat,
+        onSeekToFraction = onSeekToFraction,
+        onDownloadLink = onDownloadLink,
+    )
+    return
+
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     var showCreatePlaylist by rememberSaveable { mutableStateOf(false) }
     var createPlaylistName by rememberSaveable { mutableStateOf("") }
@@ -107,6 +132,7 @@ fun LuxMusicScreen(
                             icon = {
                                 Icon(
                                     imageVector = when (tab) {
+                                        LuxTab.HOME -> Icons.Rounded.LibraryMusic
                                         LuxTab.LIBRARY -> Icons.Rounded.LibraryMusic
                                         LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
                                         LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
@@ -142,6 +168,7 @@ fun LuxMusicScreen(
                 }
 
                 when (uiState.selectedTab) {
+                    LuxTab.HOME -> Unit
                     LuxTab.LIBRARY -> {
                         item {
                             LuxLibraryToolbarCard(
@@ -343,6 +370,7 @@ fun LuxMusicScreen(
 }
 
 private fun LuxTab.title(): String = when (this) {
+    LuxTab.HOME -> "Главная"
     LuxTab.LIBRARY -> "Библиотека"
     LuxTab.PLAYLISTS -> "Плейлисты"
     LuxTab.DOWNLOAD -> "Загрузка"

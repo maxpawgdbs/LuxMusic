@@ -59,12 +59,22 @@ class MainActivity : ComponentActivity() {
                     snackbarHostState = snackbarHostState,
                     onSelectTab = viewModel::selectTab,
                     onSearchChange = viewModel::updateSearch,
-                    onImportClick = { importLauncher.launch(arrayOf("audio/*")) },
+                    onImportClick = {
+                        importLauncher.launch(
+                            arrayOf(
+                                "audio/*",
+                                "application/ogg",
+                                "application/octet-stream",
+                            ),
+                        )
+                    },
                     onCreatePlaylist = viewModel::createPlaylist,
                     onAddTrackToPlaylist = viewModel::addTrackToPlaylist,
                     onDeleteTrack = viewModel::deleteTrack,
+                    onDeletePlaylist = viewModel::deletePlaylist,
                     onPlayTrack = viewModel::playTrack,
                     onPlayPlaylist = viewModel::playPlaylist,
+                    onPlayPlaylistTrack = viewModel::playPlaylistTrack,
                     onTogglePlayback = viewModel::togglePlayback,
                     onSkipPrevious = viewModel::skipPrevious,
                     onSkipNext = viewModel::skipNext,
