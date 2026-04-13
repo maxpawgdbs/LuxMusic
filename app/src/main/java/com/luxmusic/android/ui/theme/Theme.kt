@@ -1,43 +1,62 @@
 package com.luxmusic.android.ui.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 
 private val LuxDarkColors = darkColorScheme(
-    primary = ArcticBlue,
-    onPrimary = MidnightBlue,
-    secondary = ElectricMint,
-    onSecondary = MidnightBlue,
-    tertiary = SunsetOrange,
-    background = MidnightBlue,
-    onBackground = CloudWhite,
-    surface = DeepNavy,
-    onSurface = CloudWhite,
-    surfaceVariant = DeepNavy.copy(alpha = 0.92f),
+    primary = Honey,
+    onPrimary = Ink,
+    secondary = Emerald,
+    onSecondary = Ink,
+    tertiary = Coral,
+    onTertiary = WarmPaper,
+    background = Night,
+    onBackground = WarmPaper,
+    surface = NightSurface,
+    onSurface = WarmPaper,
+    surfaceVariant = NightSurfaceHigh,
     onSurfaceVariant = Mist,
+    outline = Slate,
 )
 
 private val LuxLightColors = lightColorScheme(
-    primary = Ink,
-    onPrimary = CloudWhite,
-    secondary = ArcticBlue,
-    onSecondary = MidnightBlue,
-    tertiary = SunsetOrange,
-    background = SoftSand,
+    primary = HoneyDark,
+    onPrimary = WarmPaper,
+    secondary = Emerald,
+    onSecondary = WarmPaper,
+    tertiary = Coral,
+    onTertiary = WarmPaper,
+    background = WarmPaper,
     onBackground = Ink,
-    surface = CloudWhite,
+    surface = Color.White,
     onSurface = Ink,
-    surfaceVariant = Mist,
-    onSurfaceVariant = Ink.copy(alpha = 0.75f),
+    surfaceVariant = WarmSurface,
+    onSurfaceVariant = Slate,
+    outline = Mist,
 )
 
 @Composable
 fun LuxMusicTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val darkTheme = isSystemInDarkTheme()
+    val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else if (darkTheme) {
+        LuxDarkColors
+    } else {
+        LuxLightColors
+    }
+
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) LuxDarkColors else LuxLightColors,
+        colorScheme = colorScheme,
         typography = LuxTypography,
         content = content,
     )

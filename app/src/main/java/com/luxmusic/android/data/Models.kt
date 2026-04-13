@@ -46,7 +46,7 @@ data class DownloadState(
     val isAvailable: Boolean = true,
     val isRunning: Boolean = false,
     val progress: Float = 0f,
-    val statusMessage: String = "Вставьте ссылку на музыку, и LuxMusic сохранит её на устройстве.",
+    val statusMessage: String = "Вставьте ссылку на трек или релиз. LuxMusic попробует сохранить аудио локально на устройстве.",
     val errorMessage: String? = null,
 )
 

@@ -40,11 +40,6 @@ class LinkDownloader(
                 "io.github.junkfood02.youtubedl_android.YoutubeDLRequest",
             )
 
-            val resolvedFfmpegClass = resolveClass(
-                "com.yausername.ffmpeg.FFmpeg",
-                "io.github.junkfood02.youtubedl_android.ffmpeg.FFmpeg",
-            )
-
             youtubeDlClass = resolvedYoutubeDlClass
             requestClass = resolvedRequestClass
 
@@ -55,11 +50,6 @@ class LinkDownloader(
                     resolvedYoutubeDlClass.getMethod("init", Context::class.java).invoke(instance, context)
                 }
 
-            val ffmpegInstance = resolvedFfmpegClass
-                .getMethod("getInstance")
-                .invoke(null)
-
-            resolvedFfmpegClass.getMethod("init", Context::class.java).invoke(ffmpegInstance, context)
             initialized = true
             mutableState.value = DownloadState()
         } catch (error: Exception) {
@@ -75,9 +65,11 @@ class LinkDownloader(
         if (!initialized) initialize()
         if (!initialized) {
             return@withContext Result.failure(
-                IllegalStateException("Загрузчик не инициализирован. Проверьте yt-dlp и ffmpeg."),
+                IllegalStateException("Загрузчик не инициализирован. Проверьте yt-dlp модуль."),
             )
         }
+
+        val serviceLabel = detectService(url)
 
         val jobId = "luxmusic-${System.currentTimeMillis()}"
         val baseDir = File(
@@ -91,7 +83,7 @@ class LinkDownloader(
         mutableState.value = mutableState.value.copy(
             isRunning = true,
             progress = 0f,
-            statusMessage = "Скачиваем музыку...",
+            statusMessage = "Пробуем обработать ссылку: $serviceLabel.",
             errorMessage = null,
         )
 
@@ -102,11 +94,21 @@ class LinkDownloader(
 
             val files = jobDir.listFiles()?.toList().orEmpty()
             val audioFiles = files.filter { file ->
-                file.isFile && file.extension.lowercase() in setOf("mp3", "m4a", "aac", "flac", "wav", "ogg", "opus")
+                file.isFile && file.extension.lowercase() in setOf(
+                    "mp3",
+                    "m4a",
+                    "aac",
+                    "flac",
+                    "wav",
+                    "ogg",
+                    "opus",
+                    "webm",
+                    "mp4",
+                )
             }
 
             if (audioFiles.isEmpty()) {
-                throw IllegalStateException("После скачивания не найден ни один аудиофайл.")
+                throw IllegalStateException("После обработки ссылки не найден ни один подходящий аудиофайл.")
             }
 
             val imported = libraryStore.importDownloadedFiles(
@@ -131,7 +133,7 @@ class LinkDownloader(
             mutableState.value = mutableState.value.copy(
                 isRunning = false,
                 progress = 1f,
-                statusMessage = "Сохранено ${imported.size} трек(ов) в офлайн-библиотеку.",
+                statusMessage = "Сохранено ${imported.size} трек(ов) из $serviceLabel в офлайн-библиотеку.",
                 errorMessage = null,
             )
 
@@ -140,8 +142,8 @@ class LinkDownloader(
             mutableState.value = mutableState.value.copy(
                 isRunning = false,
                 progress = 0f,
-                statusMessage = "Не удалось обработать ссылку.",
-                errorMessage = error.message,
+                statusMessage = "Не удалось обработать ссылку $serviceLabel.",
+                errorMessage = error.message ?: serviceFailureHint(serviceLabel),
             )
         }.also {
             cleanup(jobDir)
@@ -161,15 +163,14 @@ class LinkDownloader(
         val addOptionOne = klass.methods.firstOrNull { it.name == "addOption" && it.parameterCount == 1 }
         val addOptionTwo = klass.methods.firstOrNull { it.name == "addOption" && it.parameterCount == 2 }
 
-        addOptionOne.invokeChecked(request, "-x")
-        addOptionTwo.invokeChecked(request, "--audio-format", "mp3")
-        addOptionTwo.invokeChecked(request, "--audio-quality", "0")
-        addOptionOne.invokeChecked(request, "--embed-metadata")
+        addOptionTwo.invokeChecked(request, "-f", "bestaudio/best")
+        addOptionOne.invokeChecked(request, "--no-playlist")
+        addOptionOne.invokeChecked(request, "--restrict-filenames")
         addOptionOne.invokeChecked(request, "--write-thumbnail")
+        addOptionOne.invokeChecked(request, "--write-info-json")
         addOptionOne.invokeChecked(request, "--write-auto-subs")
-        addOptionTwo.invokeChecked(request, "--convert-subs", "lrc")
         addOptionTwo.invokeChecked(request, "--sub-langs", "all")
-        addOptionTwo.invokeChecked(request, "-o", jobDir.absolutePath + "/%(title)s.%(ext)s")
+        addOptionTwo.invokeChecked(request, "-o", jobDir.absolutePath + "/%(title).140B.%(ext)s")
 
         return request
     }
@@ -198,5 +199,27 @@ class LinkDownloader(
     private fun Method?.invokeChecked(target: Any, vararg args: Any) {
         check(this != null) { "Required YoutubeDLRequest.addOption overload is missing." }
         invoke(target, *args)
+    }
+
+    private fun detectService(url: String): String {
+        val normalized = url.lowercase()
+        return when {
+            "music.yandex" in normalized || "yandex.ru" in normalized -> "Яндекс Музыка"
+            "vk.com" in normalized || "vkvideo.ru" in normalized || "vk.ru" in normalized -> "VK / VK Музыка"
+            "tiktok.com" in normalized || "vm.tiktok.com" in normalized -> "TikTok"
+            "music.apple.com" in normalized || "itunes.apple.com" in normalized -> "Apple Music"
+            "spotify.com" in normalized -> "Spotify"
+            "soundcloud.com" in normalized -> "SoundCloud"
+            "youtube.com" in normalized || "youtu.be" in normalized || "music.youtube.com" in normalized -> "YouTube"
+            else -> "неизвестный сервис"
+        }
+    }
+
+    private fun serviceFailureHint(serviceLabel: String): String {
+        return when (serviceLabel) {
+            "Spotify", "Apple Music", "Яндекс Музыка", "VK / VK Музыка" ->
+                "Для этого сервиса загрузка зависит от доступности публичного extractor/provider и может временно не сработать."
+            else -> "Не удалось скачать музыку по ссылке."
+        }
     }
 }

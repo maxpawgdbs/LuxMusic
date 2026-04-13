@@ -126,6 +126,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteTrack(trackId: String) {
+        viewModelScope.launch {
+            playbackController.removeTrack(trackId)
+            val removed = libraryStore.deleteTrack(trackId)
+            messagesFlow.emit(
+                if (removed != null) {
+                    "Трек \"${removed.title}\" удалён с устройства."
+                } else {
+                    "Не удалось удалить трек."
+                },
+            )
+        }
+    }
+
     fun playTrack(trackId: String) {
         val queue = uiState.value.visibleTracks.ifEmpty { uiState.value.library }
         val index = queue.indexOfFirst { it.id == trackId }
@@ -169,4 +183,3 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
-

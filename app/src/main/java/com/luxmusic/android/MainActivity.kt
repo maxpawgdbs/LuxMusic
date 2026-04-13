@@ -1,5 +1,8 @@
 package com.luxmusic.android
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -7,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -30,8 +34,21 @@ class MainActivity : ComponentActivity() {
                 ) { uris ->
                     viewModel.importAudio(uris)
                 }
+                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission(),
+                ) { }
 
                 LaunchedEffect(Unit) {
+                    if (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+
                     viewModel.messages.collect { message ->
                         snackbarHostState.showSnackbar(message)
                     }
@@ -45,6 +62,7 @@ class MainActivity : ComponentActivity() {
                     onImportClick = { importLauncher.launch(arrayOf("audio/*")) },
                     onCreatePlaylist = viewModel::createPlaylist,
                     onAddTrackToPlaylist = viewModel::addTrackToPlaylist,
+                    onDeleteTrack = viewModel::deleteTrack,
                     onPlayTrack = viewModel::playTrack,
                     onPlayPlaylist = viewModel::playPlaylist,
                     onTogglePlayback = viewModel::togglePlayback,
@@ -59,4 +77,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-

@@ -24,10 +24,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
-import com.luxmusic.android.ui.theme.ArcticBlue
 import com.luxmusic.android.ui.theme.CloudWhite
-import com.luxmusic.android.ui.theme.ElectricMint
-import com.luxmusic.android.ui.theme.SunsetOrange
+import com.luxmusic.android.ui.theme.Coral
+import com.luxmusic.android.ui.theme.Emerald
+import com.luxmusic.android.ui.theme.Honey
 
 @Composable
 internal fun DecorativeBackground() {
@@ -40,19 +40,19 @@ internal fun DecorativeBackground() {
             modifier = Modifier
                 .size(220.dp)
                 .align(Alignment.TopEnd)
-                .background(ArcticBlue.copy(alpha = 0.08f), CircleShape),
+                .background(Honey.copy(alpha = 0.10f), CircleShape),
         )
         Box(
             modifier = Modifier
                 .size(180.dp)
                 .align(Alignment.CenterStart)
-                .background(ElectricMint.copy(alpha = 0.08f), CircleShape),
+                .background(Emerald.copy(alpha = 0.08f), CircleShape),
         )
         Box(
             modifier = Modifier
                 .size(260.dp)
                 .align(Alignment.BottomCenter)
-                .background(SunsetOrange.copy(alpha = 0.08f), CircleShape),
+                .background(Coral.copy(alpha = 0.08f), CircleShape),
         )
     }
 }
@@ -76,7 +76,7 @@ internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
                 .clip(RoundedCornerShape(24.dp))
                 .background(
                     Brush.linearGradient(
-                        listOf(ArcticBlue.copy(alpha = 0.75f), SunsetOrange.copy(alpha = 0.6f)),
+                        listOf(Honey.copy(alpha = 0.75f), Coral.copy(alpha = 0.6f)),
                     ),
                 ),
             contentAlignment = Alignment.Center,

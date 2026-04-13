@@ -2,13 +2,23 @@ package com.luxmusic.android.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val MidnightBlue = Color(0xFF08111F)
-val DeepNavy = Color(0xFF122038)
-val ArcticBlue = Color(0xFF58D0FF)
-val ElectricMint = Color(0xFF6DF7C1)
-val SunsetOrange = Color(0xFFFF7A4F)
-val SoftSand = Color(0xFFF5ECDD)
-val CloudWhite = Color(0xFFF8FBFF)
-val Ink = Color(0xFF102033)
-val Mist = Color(0xFFD9E8F2)
+val Night = Color(0xFF121316)
+val NightSurface = Color(0xFF1A1C20)
+val NightSurfaceHigh = Color(0xFF22252A)
+val WarmPaper = Color(0xFFF8F5ED)
+val WarmSurface = Color(0xFFF1EBDD)
+val Honey = Color(0xFFF6B91A)
+val HoneyDark = Color(0xFF7B5B00)
+val Coral = Color(0xFFE66B5B)
+val Emerald = Color(0xFF48A37D)
+val Ink = Color(0xFF1C1B1F)
+val Slate = Color(0xFF6B7280)
+val Mist = Color(0xFFE1E5EC)
 
+val MidnightBlue = Night
+val DeepNavy = NightSurface
+val ArcticBlue = Honey
+val ElectricMint = Emerald
+val SunsetOrange = Coral
+val SoftSand = WarmPaper
+val CloudWhite = Color.White

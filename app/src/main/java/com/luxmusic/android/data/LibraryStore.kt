@@ -83,6 +83,27 @@ class LibraryStore(private val context: Context) {
         }
     }
 
+    suspend fun deleteTrack(trackId: String): Track? = withContext(Dispatchers.IO) {
+        writeMutex.withLock {
+            val current = mutableSnapshot.value
+            val target = current.tracks.firstOrNull { it.id == trackId } ?: return@withLock null
+
+            val updated = current.copy(
+                tracks = current.tracks.filterNot { it.id == trackId },
+                playlists = current.playlists.map { playlist ->
+                    playlist.copy(trackIds = playlist.trackIds.filterNot { it == trackId })
+                },
+            )
+
+            persist(updated)
+
+            runCatching { File(target.localPath).delete() }
+            target.artworkPath?.let { path -> runCatching { File(path).delete() } }
+
+            target
+        }
+    }
+
     private suspend fun importUriInternal(uri: Uri): Track? {
         val displayName = queryDisplayName(uri) ?: "track-${System.currentTimeMillis()}.mp3"
         val extension = displayName.substringAfterLast('.', "").lowercase()
