@@ -30,10 +30,17 @@ uv sync
 
 1. Создать `.env` в корне проекта:
 
+```bash
+copy .env.example .env
+```
+
+или вручную:
+
 ```env
 SECRET_KEY=your-super-secret-key-12345
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 SQLITE_PATH=luxmusic.db
+MUSIC_DIR=music
 CORS_ORIGINS=["*"]
 
 # Админ создается автоматически при старте, если заполнены обе переменные
@@ -71,6 +78,18 @@ D:\music\
 
 Админка импорта: `GET /admin` (требуется JWT admin через кнопку Authorize в Swagger).
 
+Куда класть музыку:
+
+- локально для dev: в папку `music/` в корне проекта
+- рекомендуемая структура: `music/Имя_Артиста/Название_Трека.mp3`
+- можно указать другую директорию через переменную `MUSIC_DIR` или поле `folder` в `POST /admin/import`
+
+Будет ли музыка идти к клиенту для прослушивания:
+
+- да, клиент получает аудио через `GET /tracks/id/{track_id}/stream`
+- для удобства есть `GET /tracks/id/{track_id}/stream-url`, который возвращает URL для плеера
+- endpoint отдает файл как потоковый HTTP-ответ, это подходит для `<audio>` в web-клиенте и для мобильных клиентов
+
 ## Основные эндпоинты
 
 Auth:
@@ -92,6 +111,7 @@ Tracks:
 - `GET /tracks/history`
 - `GET /tracks/recommended`
 - `GET /tracks/id/{track_id}/stream`
+- `GET /tracks/id/{track_id}/stream-url`
 - `GET /tracks/stats/popular`
 
 Playlists:

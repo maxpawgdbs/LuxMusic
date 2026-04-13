@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db import get_db_session
 from app.deps import require_admin
 from app.models import User
@@ -31,9 +32,10 @@ async def admin_page(current_user: User = Depends(require_admin)) -> str:
       <div class=\"card\">
         <h1>LuxMusic Admin</h1>
         <p>Импорт треков из папки (форматы: mp3/aac/m4a/flac/ogg).</p>
+        <p>По умолчанию используется папка: <strong>{settings.music_dir}</strong></p>
         <form action=\"/admin/import\" method=\"post\">
           <label for=\"folder\">Путь к папке:</label>
-          <input id=\"folder\" name=\"folder\" placeholder=\"D:\\music\" required />
+          <input id=\"folder\" name=\"folder\" placeholder=\"оставь пустым для папки по умолчанию\" />
           <button type=\"submit\">Импортировать</button>
         </form>
       </div>
@@ -44,15 +46,17 @@ async def admin_page(current_user: User = Depends(require_admin)) -> str:
 
 @router.post("/import", response_class=HTMLResponse)
 async def import_folder(
-    folder: str = Form(...),
+    folder: str = Form(default=""),
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> str:
-    imported = await import_tracks_from_folder(db, folder)
+    target_folder = folder.strip() or settings.music_dir
+    imported = await import_tracks_from_folder(db, target_folder)
     return f"""
     <html>
       <body style=\"font-family: Segoe UI, sans-serif; margin: 24px;\">
         <h2>Готово</h2>
+        <p>Папка: <code>{target_folder}</code></p>
         <p>Импортировано треков: <strong>{imported}</strong></p>
         <a href=\"/admin\">Назад</a>
       </body>

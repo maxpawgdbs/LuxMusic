@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
 
     sqlite_path: str = "luxmusic.db"
+    music_dir: str = "music"
     cors_origins: list[str] = ["*"]
 
     bootstrap_admin_email: str | None = None

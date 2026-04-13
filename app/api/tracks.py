@@ -1,4 +1,5 @@
 from pathlib import Path
+import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -132,7 +133,18 @@ async def stream_track(track_id: int, db: AsyncSession = Depends(get_db_session)
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    return FileResponse(path)
+    media_type, _ = mimetypes.guess_type(path.name)
+    return FileResponse(path, media_type=media_type or "application/octet-stream")
+
+
+@router.get("/id/{track_id}/stream-url")
+async def stream_url(track_id: int, db: AsyncSession = Depends(get_db_session)) -> dict[str, str]:
+    result = await db.execute(select(Track).where(Track.id == track_id))
+    track = result.scalar_one_or_none()
+    if track is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Track not found")
+
+    return {"stream_url": f"/tracks/id/{track_id}/stream"}
 
 
 @router.get("/liked", response_model=list[TrackOut])
