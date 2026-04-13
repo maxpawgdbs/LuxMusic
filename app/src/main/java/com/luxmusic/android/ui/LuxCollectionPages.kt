@@ -473,7 +473,7 @@ internal fun LuxDownloadPage(
                 ) {
                     Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "Поддерживаются YouTube, SoundCloud и TikTok. Для Spotify, Apple Music, VK и Яндекс Музыки загрузка работает в режиме best effort и зависит от extractor-модуля.",
+                        "Для YouTube, SoundCloud и TikTok используется прямой extractor. Для VK, Яндекс Музыки, Apple Music и Spotify приложение сначала пытается обновить extractor, а затем при возможности делает fallback через поиск на YouTube по метаданным.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -505,7 +505,7 @@ internal fun LuxDownloadPage(
                     )
                     Button(
                         onClick = onDownload,
-                        enabled = !uiState.download.isRunning && url.isNotBlank(),
+                        enabled = uiState.download.isAvailable && !uiState.download.isRunning && url.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                         colors = luxPrimaryButtonColors(),

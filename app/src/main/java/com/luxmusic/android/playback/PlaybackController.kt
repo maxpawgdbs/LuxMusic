@@ -150,6 +150,8 @@ class PlaybackController(context: Context) {
     }
 
     fun togglePlayback() {
+        if (player.mediaItemCount == 0) return
+
         if (player.isPlaying) {
             player.pause()
         } else {
@@ -159,6 +161,8 @@ class PlaybackController(context: Context) {
     }
 
     fun skipNext() {
+        if (player.mediaItemCount == 0) return
+
         if (player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
         } else if (player.mediaItemCount > 0) {
@@ -169,6 +173,8 @@ class PlaybackController(context: Context) {
     }
 
     fun skipPrevious() {
+        if (player.mediaItemCount == 0) return
+
         if (player.currentPosition > 3_000) {
             player.seekTo(0L)
         } else if (player.hasPreviousMediaItem()) {

@@ -97,7 +97,11 @@ internal fun LuxHomePage(
                     ) {
                         LuxStatChip(Icons.Rounded.LibraryMusic, uiState.library.size.toString(), "Треков")
                         LuxStatChip(Icons.AutoMirrored.Rounded.QueueMusic, uiState.playlists.size.toString(), "Плейлистов")
-                        LuxStatChip(Icons.Rounded.GraphicEq, formatDuration(uiState.playback.durationMs), "Очередь")
+                        LuxStatChip(
+                            Icons.Rounded.GraphicEq,
+                            formatDuration(uiState.currentTrack?.durationMs ?: 0L),
+                            "Сейчас",
+                        )
                     }
                     Text(
                         "Главная страница показывает активный плеер, текущую очередь и статус локальной коллекции без перегруженного фона.",
