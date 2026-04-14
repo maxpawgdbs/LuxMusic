@@ -2,6 +2,8 @@ name: Release APK
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -61,6 +63,14 @@ jobs:
       - name: Verify and build APKs
         run: ./gradlew --no-daemon test assembleDebug assembleRelease lintVitalRelease
 
+      - name: Update edge tag
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa edge -m "Edge build" "$GITHUB_SHA"
+          git push origin refs/tags/edge --force
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -70,9 +80,14 @@ jobs:
             app/build/outputs/apk/release/*.apk
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        id: publish_release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref == 'refs/heads/main' && 'edge' || github.ref_name }}
+          name: ${{ github.ref == 'refs/heads/main' && 'LuxMusic Edge' || github.ref_name }}
+          prerelease: ${{ github.ref == 'refs/heads/main' }}
+          make_latest: ${{ github.ref == 'refs/heads/main' && 'false' || 'true' }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: |
             app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
@@ -82,3 +97,4 @@ jobs:
             - `app-arm64-v8a-debug.apk`: installable debug build
             - `app-arm64-v8a-release.apk`: signed release build when secrets are configured
             - `app-arm64-v8a-release-unsigned.apk`: fallback unsigned release build when signing secrets are missing
+            - `edge` prerelease is updated automatically on every push to `main`
