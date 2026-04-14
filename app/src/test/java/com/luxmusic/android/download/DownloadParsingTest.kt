@@ -65,6 +65,39 @@ class DownloadParsingTest {
     }
 
     @Test
+    fun `netscapeCookieLines converts cookie header to file lines`() {
+        val lines = DownloadParsing.netscapeCookieLines(
+            domain = "accounts.google.com",
+            cookieHeader = "SID=abc123; HSID=secret; invalid; blank=",
+        )
+
+        assertEquals(
+            listOf(
+                ".accounts.google.com\tTRUE\t/\tTRUE\t2147483647\tSID\tabc123",
+                ".accounts.google.com\tTRUE\t/\tTRUE\t2147483647\tHSID\tsecret",
+            ),
+            lines,
+        )
+    }
+
+    @Test
+    fun `cookiesFileFromHeaders builds netscape cookie file from multiple domains`() {
+        val cookiesText = DownloadParsing.cookiesFileFromHeaders(
+            mapOf(
+                "accounts.google.com" to "SID=abc123; HSID=secret",
+                "youtube.com" to "PREF=wide",
+                "music.youtube.com" to null,
+            ),
+        )
+
+        assertNotNull(cookiesText)
+        assertTrue(cookiesText!!.startsWith("# Netscape HTTP Cookie File"))
+        assertTrue(cookiesText.contains(".accounts.google.com\tTRUE\t/\tTRUE\t2147483647\tSID\tabc123"))
+        assertTrue(cookiesText.contains(".accounts.google.com\tTRUE\t/\tTRUE\t2147483647\tHSID\tsecret"))
+        assertTrue(cookiesText.contains(".youtube.com\tTRUE\t/\tTRUE\t2147483647\tPREF\twide"))
+    }
+
+    @Test
     fun `htmlToSourceMetadata extracts title artist and query hint from html`() {
         val html = """
             <html>

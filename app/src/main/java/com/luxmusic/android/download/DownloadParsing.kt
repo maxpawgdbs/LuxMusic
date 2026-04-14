@@ -76,6 +76,49 @@ internal object DownloadParsing {
             .takeIf { it.isNotBlank() }
     }
 
+    fun cookiesFileFromHeaders(domainToHeader: Map<String, String?>): String? {
+        val cookieLines = domainToHeader.entries
+            .flatMap { (domain, header) -> netscapeCookieLines(domain, header) }
+            .distinct()
+
+        if (cookieLines.isEmpty()) return null
+
+        return buildString {
+            appendLine("# Netscape HTTP Cookie File")
+            cookieLines.forEach(::appendLine)
+        }.trim()
+    }
+
+    fun netscapeCookieLines(domain: String, cookieHeader: String?): List<String> {
+        if (cookieHeader.isNullOrBlank()) return emptyList()
+
+        val normalizedDomain = domain.removePrefix(".").trim().lowercase()
+        if (normalizedDomain.isBlank()) return emptyList()
+
+        val cookieDomain = ".$normalizedDomain"
+        return cookieHeader.split(';')
+            .map(String::trim)
+            .mapNotNull { cookie ->
+                val separatorIndex = cookie.indexOf('=')
+                if (separatorIndex <= 0 || separatorIndex == cookie.lastIndex) return@mapNotNull null
+
+                val name = cookie.substring(0, separatorIndex).trim()
+                val value = cookie.substring(separatorIndex + 1).trim()
+                if (name.isBlank() || value.isBlank()) return@mapNotNull null
+
+                listOf(
+                    cookieDomain,
+                    "TRUE",
+                    "/",
+                    "TRUE",
+                    "2147483647",
+                    name,
+                    value,
+                ).joinToString("\t")
+            }
+            .distinct()
+    }
+
     fun buildYoutubeFallbackQuery(metadata: DownloadSourceMetadata?): String? {
         if (metadata == null) return null
 

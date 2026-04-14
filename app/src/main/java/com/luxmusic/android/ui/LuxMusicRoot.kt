@@ -71,6 +71,7 @@ internal fun LuxMusicRoot(
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
     onDownloadLink: (String) -> Unit,
+    onCaptureDownloadAccount: (DownloadService, String?) -> Unit,
     onImportDownloadAccount: (DownloadService) -> Unit,
     onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
@@ -84,6 +85,7 @@ internal fun LuxMusicRoot(
     var playlistTargetTrack by remember { mutableStateOf<Track?>(null) }
     var deleteTargetTrack by remember { mutableStateOf<Track?>(null) }
     var deleteTargetPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var loginService by remember { mutableStateOf<DownloadService?>(null) }
 
     val openedPlaylist = remember(uiState.playlists, openedPlaylistId) {
         uiState.playlists.firstOrNull { it.id == openedPlaylistId }
@@ -219,6 +221,7 @@ internal fun LuxMusicRoot(
                     onUrlChange = { downloadUrl = it },
                     onDownload = { onDownloadLink(downloadUrl) },
                     uiState = uiState,
+                    onOpenDownloadAccountLogin = { loginService = it },
                     onImportDownloadAccount = onImportDownloadAccount,
                     onClearDownloadAccount = onClearDownloadAccount,
                 )
@@ -450,6 +453,18 @@ internal fun LuxMusicRoot(
                 TextButton(onClick = { deleteTargetPlaylist = null }) {
                     Text("Отмена")
                 }
+            },
+        )
+    }
+
+    if (loginService != null) {
+        DownloadAccountLoginDialog(
+            service = loginService!!,
+            onDismiss = { loginService = null },
+            onComplete = { userAgent ->
+                val service = loginService ?: return@DownloadAccountLoginDialog
+                onCaptureDownloadAccount(service, userAgent)
+                loginService = null
             },
         )
     }

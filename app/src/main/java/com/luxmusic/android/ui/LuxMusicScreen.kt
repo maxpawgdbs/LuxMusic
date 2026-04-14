@@ -27,6 +27,7 @@ fun LuxMusicScreen(
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
     onDownloadLink: (String) -> Unit,
+    onCaptureDownloadAccount: (DownloadService, String?) -> Unit,
     onImportDownloadAccount: (DownloadService) -> Unit,
     onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
@@ -50,6 +51,7 @@ fun LuxMusicScreen(
         onCycleRepeat = onCycleRepeat,
         onSeekToFraction = onSeekToFraction,
         onDownloadLink = onDownloadLink,
+        onCaptureDownloadAccount = onCaptureDownloadAccount,
         onImportDownloadAccount = onImportDownloadAccount,
         onClearDownloadAccount = onClearDownloadAccount,
     )

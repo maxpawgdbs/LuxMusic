@@ -2,13 +2,16 @@ package com.luxmusic.android.download
 
 import android.content.Context
 import android.net.Uri
+import android.webkit.CookieManager
 import android.webkit.WebSettings
+import androidx.core.content.edit
 import com.luxmusic.android.data.DownloadAccountState
 import com.luxmusic.android.data.DownloadService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+import java.net.URL
 
 class DownloadAccountStore(private val context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -25,23 +28,39 @@ class DownloadAccountStore(private val context: Context) {
                 error("В cookies.txt не найдено ни одной cookie для ${service.title}.")
             }
 
-            val session = StoredAccountSession(
+            saveSession(
+                service = service,
                 cookiesText = filteredContent,
                 userAgent = defaultUserAgent(),
-                updatedAt = System.currentTimeMillis(),
             )
+        }
+    }
 
-            preferences.edit()
-                .putString(service.name, session.toJson().toString())
-                .apply()
+    fun captureCookiesFromWebView(
+        service: DownloadService,
+        userAgent: String?,
+    ): Result<DownloadAccountState> {
+        return runCatching {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.flush()
 
-            publish()
-            accounts.value.first { it.service == service }
+            val domainHeaders = webViewDomainsFor(service).associateWith { domain ->
+                cookieManager.getCookie("https://$domain")
+            }
+
+            val cookiesText = DownloadParsing.cookiesFileFromHeaders(domainHeaders)
+                ?: error("Не удалось получить cookies после входа в ${service.title}. Завершите авторизацию и попробуйте снова.")
+
+            saveSession(
+                service = service,
+                cookiesText = cookiesText,
+                userAgent = userAgent?.takeIf { it.isNotBlank() } ?: defaultUserAgent(),
+            )
         }
     }
 
     fun clearSession(service: DownloadService) {
-        preferences.edit().remove(service.name).apply()
+        preferences.edit { remove(service.name) }
         publish()
     }
 
@@ -74,8 +93,34 @@ class DownloadAccountStore(private val context: Context) {
         mutableAccounts.value = loadStates()
     }
 
+    private fun saveSession(
+        service: DownloadService,
+        cookiesText: String,
+        userAgent: String?,
+    ): DownloadAccountState {
+        val session = StoredAccountSession(
+            cookiesText = cookiesText,
+            userAgent = userAgent,
+            updatedAt = System.currentTimeMillis(),
+        )
+
+        preferences.edit {
+            putString(service.name, session.toJson().toString())
+        }
+
+        publish()
+        return accounts.value.first { it.service == service }
+    }
+
     private fun filterCookiesForService(service: DownloadService, raw: String): String? {
         return DownloadParsing.filterCookiesForService(service, raw)
+    }
+
+    private fun webViewDomainsFor(service: DownloadService): List<String> {
+        val loginHost = runCatching { URL(service.loginUrl).host.lowercase() }.getOrNull()
+        return listOfNotNull(loginHost)
+            .plus(service.cookieDomains.map(String::lowercase))
+            .distinct()
     }
 
     private fun defaultUserAgent(): String? {

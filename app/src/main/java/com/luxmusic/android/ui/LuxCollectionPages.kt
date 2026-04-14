@@ -1,7 +1,5 @@
 package com.luxmusic.android.ui
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -42,7 +40,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -469,10 +466,10 @@ internal fun LuxDownloadPage(
     onUrlChange: (String) -> Unit,
     onDownload: () -> Unit,
     uiState: LuxMusicUiState,
+    onOpenDownloadAccountLogin: (DownloadService) -> Unit,
     onImportDownloadAccount: (DownloadService) -> Unit,
     onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
-    val context = LocalContext.current
     val accountsByService = remember(uiState.downloadAccounts) {
         uiState.downloadAccounts.associateBy(DownloadAccountState::service)
     }
@@ -494,7 +491,7 @@ internal fun LuxDownloadPage(
                 ) {
                     Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "Для YouTube, SoundCloud и TikTok используется прямой extractor. Для платных и закрытых площадок перед скачиванием подключите аккаунт: войдите на официальном сайте сервиса в браузере и импортируйте cookies.txt в LuxMusic.",
+                        "Для YouTube, SoundCloud и TikTok используется прямой extractor. Для платных и закрытых площадок можно войти прямо внутри LuxMusic: после авторизации приложение само сохранит cookies сессии. Ручной импорт cookies оставлен как запасной вариант.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -521,11 +518,7 @@ internal fun LuxDownloadPage(
                         DownloadAccountCard(
                             service = service,
                             accountState = accountState,
-                            onLogin = {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(service.loginUrl)),
-                                )
-                            },
+                            onLogin = { onOpenDownloadAccountLogin(service) },
                             onImportCookies = { onImportDownloadAccount(service) },
                             onClear = { onClearDownloadAccount(service) },
                         )
@@ -626,7 +619,7 @@ private fun DownloadAccountCard(
                 )
             }
             Text(
-                "Шаг 1: войдите на официальном сайте ${service.title} в браузере. Шаг 2: экспортируйте cookies.txt из этого браузера. Шаг 3: импортируйте файл сюда.",
+                "Нажмите «Войти в приложении», авторизуйтесь прямо во встроенном окне и завершите вход. LuxMusic сам сохранит cookies сессии. Если конкретный сервис не даёт войти через WebView, ниже можно импортировать cookies вручную как fallback.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -640,7 +633,7 @@ private fun DownloadAccountCard(
                 ) {
                     Icon(Icons.AutoMirrored.Rounded.Login, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Войти")
+                    Text(if (accountState.isConnected) "Перевойти" else "Войти в приложении")
                 }
                 Button(
                     onClick = onImportCookies,
@@ -648,7 +641,7 @@ private fun DownloadAccountCard(
                 ) {
                     Icon(Icons.Rounded.UploadFile, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (accountState.isConnected) "Обновить cookies" else "Импортировать cookies")
+                    Text(if (accountState.isConnected) "Обновить cookies вручную" else "Импортировать cookies вручную")
                 }
                 if (accountState.isConnected) {
                     OutlinedButton(onClick = onClear) {

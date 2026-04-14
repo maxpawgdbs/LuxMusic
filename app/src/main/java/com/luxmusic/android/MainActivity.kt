@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
                     onCycleRepeat = viewModel::cycleRepeat,
                     onSeekToFraction = viewModel::seekToFraction,
                     onDownloadLink = viewModel::downloadFromLink,
+                    onCaptureDownloadAccount = viewModel::captureDownloadAccountCookies,
                     onImportDownloadAccount = { service ->
                         pendingAccountImportService = service
                         accountCookiesLauncher.launch(

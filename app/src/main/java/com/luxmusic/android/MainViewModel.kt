@@ -240,6 +240,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun captureDownloadAccountCookies(service: DownloadService, userAgent: String?) {
+        viewModelScope.launch {
+            val result = downloadAccountStore.captureCookiesFromWebView(service, userAgent)
+            result.onSuccess {
+                messagesFlow.emit("Аккаунт ${service.title} подключен.")
+            }.onFailure { error ->
+                messagesFlow.emit(error.message ?: "Не удалось завершить вход для ${service.title}.")
+            }
+        }
+    }
+
     fun clearDownloadAccount(service: DownloadService) {
         viewModelScope.launch {
             downloadAccountStore.clearSession(service)
