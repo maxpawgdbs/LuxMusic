@@ -1,0 +1,57 @@
+name: Nightly APK
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle executable
+        run: chmod +x gradlew
+
+      - name: Run nightly verification
+        run: ./gradlew --no-daemon test assembleDebug lintVitalRelease
+
+      - name: Upload nightly APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: luxmusic-nightly-apks
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload nightly reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: luxmusic-nightly-reports
+          path: |
+            app/build/reports/**
+            app/build/intermediates/lint_vital_intermediate_text_report/**

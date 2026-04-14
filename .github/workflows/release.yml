@@ -39,6 +39,25 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x gradlew
 
+      - name: Prepare signing config
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/luxmusic-release.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/luxmusic-release.jks" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "SIGNED_RELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "SIGNED_RELEASE=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Verify and build APKs
         run: ./gradlew --no-daemon test assembleDebug assembleRelease lintVitalRelease
 
@@ -57,8 +76,9 @@ jobs:
           generate_release_notes: true
           files: |
             app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-            app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+            app/build/outputs/apk/release/*.apk
           body: |
             APK assets:
             - `app-arm64-v8a-debug.apk`: installable debug build
-            - `app-arm64-v8a-release-unsigned.apk`: optimized unsigned release build
+            - `app-arm64-v8a-release.apk`: signed release build when secrets are configured
+            - `app-arm64-v8a-release-unsigned.apk`: fallback unsigned release build when signing secrets are missing

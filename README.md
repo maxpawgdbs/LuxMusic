@@ -1,6 +1,10 @@
 # LuxMusic
 
-Android-прототип музыкального приложения с локальной офлайн-библиотекой.
+[![Android CI](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/ci.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/ci.yml)
+[![Release APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml)
+[![Nightly APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/nightly.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/nightly.yml)
+
+Android-прототип музыкального приложения с локальной офлайн-библиотекой, плейлистами, загрузкой по ссылке и интерфейсом на Material Design 3.
 
 ## Что уже сделано
 
@@ -9,8 +13,9 @@ Android-прототип музыкального приложения с лок
 - извлечение метаданных, обложек и текста из файла или sidecar-файлов (`.lrc`, `.txt`, `.vtt`) по возможности
 - плейлисты
 - режимы `shuffle`, `repeat all`, `repeat one`
-- UI на Jetpack Compose
+- UI на Jetpack Compose + Material 3
 - скачивание по ссылке через `yt-dlp` Android-wrapper с последующим импортом в библиотеку
+- media notification и управление воспроизведением
 
 ## Стек
 
@@ -19,17 +24,35 @@ Android-прототип музыкального приложения с лок
 - Media3 ExoPlayer
 - `io.github.junkfood02.youtubedl-android`
 
+## CI/CD
+
+- `Android CI` запускается на каждый push в `main`, на каждый PR и вручную
+- `Release APK` запускается по тегам `v*` и вручную
+- `Nightly APK` запускается по расписанию и вручную
+- CI публикует debug APK и build reports как artifacts
+- Release workflow публикует GitHub Release и APK-артефакты
+
+## Signed Release
+
+Чтобы GitHub Actions собирал подписанный release APK, добавьте в Secrets репозитория:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+`ANDROID_KEYSTORE_BASE64` должен содержать base64-строку вашего `.jks` или `.keystore` файла.  
+Если secrets не заданы, workflow всё равно соберёт unsigned release APK.
+
 ## Важные замечания
 
 - Загрузчик построен на GPL-зависимости. Для закрытого коммерческого релиза этот слой лучше заменить своим backend/provider-решением.
 - Используйте скачивание только для контента, который вы имеете право сохранять.
-- На этой машине не было Android SDK, Gradle и JDK 17 для полноценной сборки, поэтому проект подготовлен как исходник под Android Studio, но не был собран здесь.
-- В проекте есть `gradlew`/`gradlew.bat` и `gradle-wrapper.properties`, но `gradle-wrapper.jar` не был скачан в текущем окружении.
 
 ## Как открыть
 
 1. Установить Android Studio с JDK 17+.
-2. Установить Android SDK Platform 35.
+2. Установить Android SDK Platform 36.
 3. Открыть папку проекта в Android Studio.
-4. Досинхронизировать Gradle wrapper и зависимости.
+4. Дождаться синхронизации Gradle wrapper и зависимостей.
 5. Запустить `app` на устройстве или эмуляторе с Android 8.0+.
