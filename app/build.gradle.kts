@@ -103,7 +103,9 @@ tasks.register<JavaExec>("offlineUnitTest") {
     description = "Runs JVM unit tests with the bundled offline JUnit runtime."
     dependsOn(
         "compileDebugKotlin",
+        "compileDebugJavaWithJavac",
         "compileDebugUnitTestKotlin",
+        "compileDebugUnitTestJavaWithJavac",
         "processDebugJavaRes",
         "processDebugUnitTestJavaRes",
     )
@@ -119,4 +121,12 @@ tasks.register<JavaExec>("offlineUnitTest") {
         configurations.getByName("debugUnitTestRuntimeClasspath"),
     )
     args("com.luxmusic.android.download.DownloadParsingTest")
+}
+
+tasks.matching { it.name == "testDebugUnitTest" }.configureEach {
+    enabled = false
+}
+
+tasks.matching { it.name == "test" || it.name == "check" }.configureEach {
+    dependsOn("offlineUnitTest")
 }

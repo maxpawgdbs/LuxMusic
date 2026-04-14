@@ -38,6 +38,16 @@ class DownloadParsingTest {
     }
 
     @Test
+    fun `filterCookiesForService returns null when there are no matching cookies`() {
+        val rawCookies = """
+            # Netscape HTTP Cookie File
+            .spotify.com	TRUE	/	FALSE	2147483647	sp_dc	secret
+        """.trimIndent()
+
+        assertNull(DownloadParsing.filterCookiesForService(DownloadService.YOUTUBE, rawCookies))
+    }
+
+    @Test
     fun `cookieHeaderFor returns only cookies for matching host`() {
         val cookiesText = """
             # Netscape HTTP Cookie File
@@ -71,6 +81,24 @@ class DownloadParsingTest {
         assertEquals("Song & More", metadata?.title)
         assertEquals("Artist", metadata?.artist)
         assertEquals("Song & More Artist | Album version", metadata?.queryHint)
+    }
+
+    @Test
+    fun `htmlToSourceMetadata handles bullet and em dash separators`() {
+        val html = """
+            <html>
+            <head>
+            <meta property="og:title" content="Track Title" />
+            <meta property="og:description" content="Artist • Album — Remaster" />
+            </head>
+            </html>
+        """.trimIndent()
+
+        val metadata = DownloadParsing.htmlToSourceMetadata(html)
+
+        assertNotNull(metadata)
+        assertEquals("Artist", metadata?.artist)
+        assertEquals("Track Title Artist • Album — Remaster", metadata?.queryHint)
     }
 
     @Test

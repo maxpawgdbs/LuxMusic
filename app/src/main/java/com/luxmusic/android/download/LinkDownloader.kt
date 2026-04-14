@@ -287,7 +287,7 @@ class LinkDownloader(
 
         val bestFile = significantFiles.maxWithOrNull(
             compareBy<File> { candidateScore(it, expectedDurationMs) }
-                .thenBy(File::length),
+                .thenByDescending(File::length),
         ) ?: significantFiles.first()
 
         validateAudioFile(bestFile, expectedDurationMs, service)

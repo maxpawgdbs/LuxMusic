@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.Login
 import androidx.compose.material.icons.rounded.PauseCircleFilled
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlayCircleFilled
@@ -638,7 +638,7 @@ private fun DownloadAccountCard(
                     onClick = onLogin,
                     colors = luxTonalButtonColors(),
                 ) {
-                    Icon(Icons.Rounded.Login, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Rounded.Login, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Войти")
                 }
