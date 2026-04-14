@@ -4,9 +4,14 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -34,10 +39,19 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x gradlew
 
-      - name: Build APKs
-        run: ./gradlew --no-daemon assembleDebug assembleRelease
+      - name: Verify and build APKs
+        run: ./gradlew --no-daemon test assembleDebug assembleRelease lintVitalRelease
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luxmusic-release-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
 
       - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
