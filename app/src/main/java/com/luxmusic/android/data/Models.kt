@@ -50,6 +50,70 @@ data class DownloadState(
     val errorMessage: String? = null,
 )
 
+enum class DownloadService(
+    val title: String,
+    val loginUrl: String,
+    val cookieDomains: List<String>,
+    val requiresAccount: Boolean,
+    val accountRecommended: Boolean = false,
+) {
+    YOUTUBE(
+        title = "YouTube",
+        loginUrl = "https://accounts.google.com/ServiceLogin?service=youtube",
+        cookieDomains = listOf("youtube.com", "music.youtube.com", "google.com"),
+        requiresAccount = false,
+        accountRecommended = true,
+    ),
+    YANDEX_MUSIC(
+        title = "Яндекс Музыка",
+        loginUrl = "https://passport.yandex.ru/auth?retpath=https%3A%2F%2Fmusic.yandex.ru%2F",
+        cookieDomains = listOf("music.yandex.ru", "yandex.ru"),
+        requiresAccount = true,
+    ),
+    VK_MUSIC(
+        title = "VK Музыка",
+        loginUrl = "https://id.vk.com/auth",
+        cookieDomains = listOf("vk.com", "vk.ru"),
+        requiresAccount = true,
+    ),
+    APPLE_MUSIC(
+        title = "Apple Music",
+        loginUrl = "https://music.apple.com/login",
+        cookieDomains = listOf("music.apple.com", "apple.com"),
+        requiresAccount = true,
+    ),
+    SPOTIFY(
+        title = "Spotify",
+        loginUrl = "https://accounts.spotify.com/login",
+        cookieDomains = listOf("spotify.com"),
+        requiresAccount = true,
+    ),
+    SOUNDCLOUD(
+        title = "SoundCloud",
+        loginUrl = "https://soundcloud.com/signin",
+        cookieDomains = listOf("soundcloud.com"),
+        requiresAccount = false,
+    ),
+    TIKTOK(
+        title = "TikTok",
+        loginUrl = "https://www.tiktok.com/login",
+        cookieDomains = listOf("tiktok.com"),
+        requiresAccount = false,
+    ),
+    UNKNOWN(
+        title = "Неизвестный сервис",
+        loginUrl = "https://www.google.com",
+        cookieDomains = emptyList(),
+        requiresAccount = false,
+    ),
+}
+
+data class DownloadAccountState(
+    val service: DownloadService,
+    val isConnected: Boolean,
+    val updatedAt: Long? = null,
+)
+
 data class ExtractedTrackMetadata(
     val title: String?,
     val artist: String?,

@@ -4,6 +4,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
+import com.luxmusic.android.data.DownloadService
 
 @Composable
 fun LuxMusicScreen(
@@ -26,6 +27,8 @@ fun LuxMusicScreen(
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
     onDownloadLink: (String) -> Unit,
+    onImportDownloadAccount: (DownloadService) -> Unit,
+    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
     LuxMusicRoot(
         uiState = uiState,
@@ -47,5 +50,7 @@ fun LuxMusicScreen(
         onCycleRepeat = onCycleRepeat,
         onSeekToFraction = onSeekToFraction,
         onDownloadLink = onDownloadLink,
+        onImportDownloadAccount = onImportDownloadAccount,
+        onClearDownloadAccount = onClearDownloadAccount,
     )
 }

@@ -92,7 +92,31 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling:$composeUi")
     debugImplementation("androidx.compose.ui:ui-test-manifest:$composeUi")
 
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(files("libs/junit4.jar"))
+    testRuntimeOnly(files("libs/junit4.jar"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+}
+
+tasks.register<JavaExec>("offlineUnitTest") {
+    group = "verification"
+    description = "Runs JVM unit tests with the bundled offline JUnit runtime."
+    dependsOn(
+        "compileDebugKotlin",
+        "compileDebugUnitTestKotlin",
+        "processDebugJavaRes",
+        "processDebugUnitTestJavaRes",
+    )
+
+    mainClass.set("org.junit.runner.JUnitCore")
+    val buildOutputDir = layout.buildDirectory.get().asFile
+    classpath = files(
+        file("libs/junit4.jar"),
+        buildOutputDir.resolve("intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes"),
+        buildOutputDir.resolve("intermediates/built_in_kotlinc/debugUnitTest/compileDebugUnitTestKotlin/classes"),
+        buildOutputDir.resolve("intermediates/javac/debug/compileDebugJavaWithJavac/classes"),
+        buildOutputDir.resolve("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"),
+    )
+    args("com.luxmusic.android.download.DownloadParsingTest")
 }

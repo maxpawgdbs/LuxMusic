@@ -4,6 +4,8 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.luxmusic.android.data.DownloadAccountState
+import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.DownloadState
 import com.luxmusic.android.data.PlaybackState
 import com.luxmusic.android.data.Playlist
@@ -28,6 +30,7 @@ data class LuxMusicUiState(
     val library: List<Track> = emptyList(),
     val visibleTracks: List<Track> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
+    val downloadAccounts: List<DownloadAccountState> = emptyList(),
     val selectedTab: LuxTab = LuxTab.HOME,
     val searchQuery: String = "",
     val playback: PlaybackState = PlaybackState(),
@@ -39,6 +42,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val luxApp = application as LuxMusicApp
     private val libraryStore = luxApp.libraryStore
     private val playbackController = luxApp.playbackController
+    private val downloadAccountStore = luxApp.downloadAccountStore
     private val linkDownloader = luxApp.linkDownloader
 
     private val searchQuery = MutableStateFlow("")
@@ -50,29 +54,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<LuxMusicUiState> = combine(
         libraryStore.snapshot,
         playbackController.state,
+        downloadAccountStore.accounts,
         linkDownloader.state,
         searchQuery,
-        selectedTab,
-    ) { library, playback, download, query, tab ->
-        val visibleTracks = if (query.isBlank()) {
-            library.tracks
+    ) { library, playback, downloadAccounts, download, query ->
+        CombinedUiInputs(
+            library = library,
+            playback = playback,
+            downloadAccounts = downloadAccounts,
+            download = download,
+            query = query,
+        )
+    }.combine(selectedTab) { inputs, tab ->
+        val visibleTracks = if (inputs.query.isBlank()) {
+            inputs.library.tracks
         } else {
-            library.tracks.filter { track ->
+            inputs.library.tracks.filter { track ->
                 listOf(track.title, track.artist, track.album)
                     .joinToString(" ")
-                    .contains(query.trim(), ignoreCase = true)
+                    .contains(inputs.query.trim(), ignoreCase = true)
             }
         }
 
         LuxMusicUiState(
-            library = library.tracks,
+            library = inputs.library.tracks,
             visibleTracks = visibleTracks,
-            playlists = library.playlists,
+            playlists = inputs.library.playlists,
+            downloadAccounts = inputs.downloadAccounts,
             selectedTab = tab,
-            searchQuery = query,
-            playback = playback,
-            currentTrack = library.tracks.firstOrNull { it.id == playback.currentTrackId },
-            download = download,
+            searchQuery = inputs.query,
+            playback = inputs.playback,
+            currentTrack = inputs.library.tracks.firstOrNull { it.id == inputs.playback.currentTrackId },
+            download = inputs.download,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -213,4 +226,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    fun importDownloadAccountCookies(service: DownloadService, uri: Uri?) {
+        if (uri == null) return
+
+        viewModelScope.launch {
+            val result = downloadAccountStore.importCookies(service, uri)
+            result.onSuccess {
+                messagesFlow.emit("Аккаунт ${service.title} подключен через cookies.txt.")
+            }.onFailure { error ->
+                messagesFlow.emit(error.message ?: "Не удалось импортировать cookies.txt для ${service.title}.")
+            }
+        }
+    }
+
+    fun clearDownloadAccount(service: DownloadService) {
+        viewModelScope.launch {
+            downloadAccountStore.clearSession(service)
+            messagesFlow.emit("Сессия ${service.title} отключена.")
+        }
+    }
+
+    private data class CombinedUiInputs(
+        val library: com.luxmusic.android.data.LibrarySnapshot,
+        val playback: PlaybackState,
+        val downloadAccounts: List<DownloadAccountState>,
+        val download: DownloadState,
+        val query: String,
+    )
 }

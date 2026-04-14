@@ -14,7 +14,12 @@ import androidx.core.content.ContextCompat
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.ui.LuxMusicScreen
 import com.luxmusic.android.ui.theme.LuxMusicTheme
 
@@ -29,10 +34,19 @@ class MainActivity : ComponentActivity() {
             LuxMusicTheme {
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
+                var pendingAccountImportService by rememberSaveable { mutableStateOf<DownloadService?>(null) }
                 val importLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments(),
                 ) { uris ->
                     viewModel.importAudio(uris)
+                }
+                val accountCookiesLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument(),
+                ) { uri ->
+                    pendingAccountImportService?.let { service ->
+                        viewModel.importDownloadAccountCookies(service, uri)
+                    }
+                    pendingAccountImportService = null
                 }
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission(),
@@ -82,6 +96,17 @@ class MainActivity : ComponentActivity() {
                     onCycleRepeat = viewModel::cycleRepeat,
                     onSeekToFraction = viewModel::seekToFraction,
                     onDownloadLink = viewModel::downloadFromLink,
+                    onImportDownloadAccount = { service ->
+                        pendingAccountImportService = service
+                        accountCookiesLauncher.launch(
+                            arrayOf(
+                                "text/plain",
+                                "text/*",
+                                "application/octet-stream",
+                            ),
+                        )
+                    },
+                    onClearDownloadAccount = viewModel::clearDownloadAccount,
                 )
             }
         }

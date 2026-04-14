@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
+import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -70,6 +71,8 @@ internal fun LuxMusicRoot(
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
     onDownloadLink: (String) -> Unit,
+    onImportDownloadAccount: (DownloadService) -> Unit,
+    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     var showCreatePlaylist by rememberSaveable { mutableStateOf(false) }
@@ -216,6 +219,8 @@ internal fun LuxMusicRoot(
                     onUrlChange = { downloadUrl = it },
                     onDownload = { onDownloadLink(downloadUrl) },
                     uiState = uiState,
+                    onImportDownloadAccount = onImportDownloadAccount,
+                    onClearDownloadAccount = onClearDownloadAccount,
                 )
             }
         }

@@ -1,5 +1,7 @@
 package com.luxmusic.android.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Login
 import androidx.compose.material.icons.rounded.PauseCircleFilled
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlayCircleFilled
@@ -39,12 +42,15 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
+import com.luxmusic.android.data.DownloadAccountState
+import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -56,6 +62,14 @@ private val downloadServices = listOf(
     "Яндекс Музыка",
     "Apple Music",
     "Spotify",
+)
+
+private val accountServices = listOf(
+    DownloadService.YOUTUBE,
+    DownloadService.YANDEX_MUSIC,
+    DownloadService.VK_MUSIC,
+    DownloadService.APPLE_MUSIC,
+    DownloadService.SPOTIFY,
 )
 
 @Composable
@@ -455,7 +469,14 @@ internal fun LuxDownloadPage(
     onUrlChange: (String) -> Unit,
     onDownload: () -> Unit,
     uiState: LuxMusicUiState,
+    onImportDownloadAccount: (DownloadService) -> Unit,
+    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
+    val context = LocalContext.current
+    val accountsByService = remember(uiState.downloadAccounts) {
+        uiState.downloadAccounts.associateBy(DownloadAccountState::service)
+    }
+
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -473,7 +494,7 @@ internal fun LuxDownloadPage(
                 ) {
                     Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "Для YouTube, SoundCloud и TikTok используется прямой extractor. Для VK, Яндекс Музыки, Apple Music и Spotify приложение сначала пытается обновить extractor, а затем при возможности делает fallback через поиск на YouTube по метаданным.",
+                        "Для YouTube, SoundCloud и TikTok используется прямой extractor. Для платных и закрытых площадок перед скачиванием подключите аккаунт: войдите на официальном сайте сервиса в браузере и импортируйте cookies.txt в LuxMusic.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -493,6 +514,21 @@ internal fun LuxDownloadPage(
                                 },
                             )
                         }
+                    }
+                    accountServices.forEach { service ->
+                        val accountState = accountsByService[service]
+                            ?: DownloadAccountState(service = service, isConnected = false)
+                        DownloadAccountCard(
+                            service = service,
+                            accountState = accountState,
+                            onLogin = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(service.loginUrl)),
+                                )
+                            },
+                            onImportCookies = { onImportDownloadAccount(service) },
+                            onClear = { onClearDownloadAccount(service) },
+                        )
                     }
                     OutlinedTextField(
                         value = url,
@@ -529,6 +565,97 @@ internal fun LuxDownloadPage(
                             MaterialTheme.colorScheme.error
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadAccountCard(
+    service: DownloadService,
+    accountState: DownloadAccountState,
+    onLogin: () -> Unit,
+    onImportCookies: () -> Unit,
+    onClear: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = luxCardColors(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(service.title, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            accountState.isConnected -> "Сессия подключена"
+                            service.requiresAccount -> "Для загрузки нужен аккаунт"
+                            service.accountRecommended -> "Аккаунт помогает обойти 429 и лимиты"
+                            else -> "Аккаунт не обязателен"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AssistChip(
+                    onClick = {},
+                    label = {
+                        Text(
+                            if (accountState.isConnected) "Подключено" else "Не подключено",
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
+                    colors = if (accountState.isConnected) {
+                        luxSelectedAssistChipColors()
+                    } else {
+                        luxAssistChipColors()
+                    },
+                )
+            }
+            Text(
+                "Шаг 1: войдите на официальном сайте ${service.title} в браузере. Шаг 2: экспортируйте cookies.txt из этого браузера. Шаг 3: импортируйте файл сюда.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = onLogin,
+                    colors = luxTonalButtonColors(),
+                ) {
+                    Icon(Icons.Rounded.Login, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Войти")
+                }
+                Button(
+                    onClick = onImportCookies,
+                    colors = luxPrimaryButtonColors(),
+                ) {
+                    Icon(Icons.Rounded.UploadFile, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (accountState.isConnected) "Обновить cookies" else "Импортировать cookies")
+                }
+                if (accountState.isConnected) {
+                    OutlinedButton(onClick = onClear) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Отключить")
+                    }
                 }
             }
         }
