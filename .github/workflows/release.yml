@@ -63,6 +63,18 @@ jobs:
       - name: Verify and build APKs
         run: ./gradlew --no-daemon test assembleDebug assembleRelease lintVitalRelease
 
+      - name: Prepare GitHub release assets
+        shell: bash
+        run: |
+          {
+            echo 'RELEASE_FILES<<EOF'
+            echo 'app/build/outputs/apk/debug/app-arm64-v8a-debug.apk'
+            if [[ "${SIGNED_RELEASE}" == "true" ]]; then
+              find app/build/outputs/apk/release -maxdepth 1 -type f -name '*-release.apk' | sort
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+
       - name: Update edge tag
         if: github.ref == 'refs/heads/main'
         run: |
@@ -89,12 +101,10 @@ jobs:
           make_latest: ${{ github.ref == 'refs/heads/main' && 'false' || 'true' }}
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
-          files: |
-            app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-            app/build/outputs/apk/release/*.apk
+          files: ${{ env.RELEASE_FILES }}
           body: |
             APK assets:
             - `app-arm64-v8a-debug.apk`: installable debug build
             - `app-arm64-v8a-release.apk`: signed release build when secrets are configured
-            - `app-arm64-v8a-release-unsigned.apk`: fallback unsigned release build when signing secrets are missing
+            - unsigned release APKs are no longer published to GitHub Releases
             - `edge` prerelease is updated automatically on every push to `main`
