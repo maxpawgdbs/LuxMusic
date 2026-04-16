@@ -145,7 +145,12 @@ tasks.register<JavaExec>("offlineUnitTest") {
         buildOutputDir.resolve("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes"),
         configurations.getByName("debugUnitTestRuntimeClasspath"),
     )
-    args("com.luxmusic.android.download.DownloadParsingTest")
+    args(
+        "com.luxmusic.android.download.DownloadParsingTest",
+        "com.luxmusic.android.download.DownloadPlannerTest",
+        "com.luxmusic.android.download.DownloadMetadataResolverTest",
+        "com.luxmusic.android.download.LinkDownloadExecutorTest",
+    )
 }
 
 tasks.matching { it.name == "testDebugUnitTest" }.configureEach {

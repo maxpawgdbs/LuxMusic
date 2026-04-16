@@ -1,24 +1,19 @@
 package com.luxmusic.android.download
 
 import com.luxmusic.android.data.DownloadService
-
-internal data class DownloadSourceMetadata(
-    val title: String? = null,
-    val artist: String? = null,
-    val durationMs: Long? = null,
-    val queryHint: String? = null,
-)
+import java.net.URL
 
 internal object DownloadParsing {
     fun detectService(url: String): DownloadService {
-        val normalized = url.lowercase()
+        val normalized = url.trim().lowercase()
         return when {
             "music.yandex" in normalized || "yandex.ru" in normalized -> DownloadService.YANDEX_MUSIC
             "vk.com" in normalized || "vkvideo.ru" in normalized || "vk.ru" in normalized -> DownloadService.VK_MUSIC
-            "tiktok.com" in normalized || "vm.tiktok.com" in normalized -> DownloadService.TIKTOK
+            "tiktok.com" in normalized || "vm.tiktok.com" in normalized || "vt.tiktok.com" in normalized ->
+                DownloadService.TIKTOK
             "music.apple.com" in normalized || "itunes.apple.com" in normalized -> DownloadService.APPLE_MUSIC
             "spotify.com" in normalized -> DownloadService.SPOTIFY
-            "soundcloud.com" in normalized -> DownloadService.SOUNDCLOUD
+            "soundcloud.com" in normalized || "on.soundcloud.com" in normalized -> DownloadService.SOUNDCLOUD
             "youtube.com" in normalized || "youtu.be" in normalized || "music.youtube.com" in normalized ||
                 normalized.startsWith("ytsearch") -> DownloadService.YOUTUBE
             else -> DownloadService.UNKNOWN
@@ -58,7 +53,12 @@ internal object DownloadParsing {
         }.trim()
     }
 
-    fun cookieHeaderFor(host: String, cookiesText: String?): String? {
+    fun cookieHeaderFor(url: String, cookiesText: String?): String? {
+        val host = runCatching { URL(url).host }.getOrNull() ?: return null
+        return cookieHeaderForHost(host, cookiesText)
+    }
+
+    fun cookieHeaderForHost(host: String, cookiesText: String?): String? {
         if (cookiesText.isNullOrBlank()) return null
         val normalizedHost = host.lowercase()
 
@@ -139,49 +139,128 @@ internal object DownloadParsing {
     fun htmlToSourceMetadata(html: String): DownloadSourceMetadata? {
         val title = extractHtmlMeta(html, "og:title")
             ?: extractHtmlMeta(html, "twitter:title")
+            ?: extractHtmlMeta(html, "title")
             ?: extractHtmlTag(html, "title")
         val description = extractHtmlMeta(html, "og:description")
             ?: extractHtmlMeta(html, "description")
             ?: extractHtmlMeta(html, "twitter:description")
+        val author = extractHtmlMeta(html, "music:musician_description")
+            ?: extractHtmlMeta(html, "author")
+            ?: extractHtmlMeta(html, "twitter:creator")
 
-        val normalizedTitle = title?.decodeHtml()?.normalizedOrNull()
+        val normalizedTitle = normalizePageTitle(title?.decodeHtml()).normalizedOrNull()
         val normalizedDescription = description?.decodeHtml()?.normalizedOrNull()
-        if (normalizedTitle == null && normalizedDescription == null) {
+        val normalizedAuthor = author?.decodeHtml()?.normalizedOrNull()
+
+        if (normalizedTitle == null && normalizedDescription == null && normalizedAuthor == null) {
             return null
         }
 
-        val artist = normalizedDescription
-            ?.split("·", "•", "|", "—", " - ")
-            ?.firstOrNull()
-            ?.normalizedOrNull()
+        val artist = normalizedAuthor
+            ?: parseArtist(normalizedDescription)
+            ?: extractArtistFromTitle(normalizedTitle)
+
+        val cleanTitle = normalizedTitle?.let { sanitizeTitle(it, artist) }
+        val queryHint = listOfNotNull(artist, cleanTitle ?: normalizedTitle)
+            .joinToString(" ")
+            .takeIf { it.isNotBlank() }
+            ?: normalizedDescription
 
         return DownloadSourceMetadata(
-            title = normalizedTitle,
+            title = cleanTitle ?: normalizedTitle,
             artist = artist,
-            queryHint = listOfNotNull(normalizedTitle, normalizedDescription)
-                .joinToString(" ")
-                .takeIf { it.isNotBlank() },
+            queryHint = queryHint,
+        )
+    }
+
+    fun appleMusicLookupKey(url: String): AppleMusicLookupKey? {
+        val match = APPLE_MUSIC_PATTERN.find(url.trim()) ?: return null
+        val countryCode = match.groupValues.getOrNull(1).normalizedOrNull()
+        val resourceId = match.groupValues.getOrNull(3).normalizedOrNull() ?: return null
+        val trackId = match.groupValues.getOrNull(4).normalizedOrNull()
+        return AppleMusicLookupKey(
+            countryCode = countryCode,
+            resourceId = resourceId,
+            trackId = trackId,
         )
     }
 
     private fun extractHtmlMeta(html: String, property: String): String? {
+        val escapedProperty = Regex.escape(property)
         val patterns = listOf(
-            Regex("""<meta[^>]+property=["']$property["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
-            Regex("""<meta[^>]+content=["']([^"']+)["'][^>]+property=["']$property["']""", RegexOption.IGNORE_CASE),
-            Regex("""<meta[^>]+name=["']$property["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
-            Regex("""<meta[^>]+content=["']([^"']+)["'][^>]+name=["']$property["']""", RegexOption.IGNORE_CASE),
+            Regex(
+                """<meta[^>]+property=["']$escapedProperty["'][^>]+content=["']([^"']+)["']""",
+                RegexOption.IGNORE_CASE,
+            ),
+            Regex(
+                """<meta[^>]+content=["']([^"']+)["'][^>]+property=["']$escapedProperty["']""",
+                RegexOption.IGNORE_CASE,
+            ),
+            Regex(
+                """<meta[^>]+name=["']$escapedProperty["'][^>]+content=["']([^"']+)["']""",
+                RegexOption.IGNORE_CASE,
+            ),
+            Regex(
+                """<meta[^>]+content=["']([^"']+)["'][^>]+name=["']$escapedProperty["']""",
+                RegexOption.IGNORE_CASE,
+            ),
         )
+
         return patterns.firstNotNullOfOrNull { pattern ->
             pattern.find(html)?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
         }
     }
 
     private fun extractHtmlTag(html: String, tag: String): String? {
-        return Regex("""<$tag[^>]*>(.*?)</$tag>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            .find(html)
+        val escapedTag = Regex.escape(tag)
+        return Regex(
+            """<$escapedTag[^>]*>(.*?)</$escapedTag>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        ).find(html)
             ?.groupValues
             ?.getOrNull(1)
             ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun normalizePageTitle(raw: String?): String? {
+        return raw
+            ?.replace(Regex("\\s+"), " ")
+            ?.replace(" - YouTube", "", ignoreCase = true)
+            ?.replace(" | Spotify", "", ignoreCase = true)
+            ?.replace(" - Apple Music", "", ignoreCase = true)
+            ?.replace(" - SoundCloud", "", ignoreCase = true)
+            ?.replace(" | VK Музыка", "", ignoreCase = true)
+            ?.replace(" | Яндекс Музыка", "", ignoreCase = true)
+            ?.trim()
+    }
+
+    private fun sanitizeTitle(
+        title: String,
+        artist: String?,
+    ): String {
+        if (artist == null) return title
+        val prefix = "$artist - "
+        return if (title.startsWith(prefix, ignoreCase = true)) {
+            title.removePrefix(prefix).trim()
+        } else {
+            title
+        }
+    }
+
+    private fun extractArtistFromTitle(title: String?): String? {
+        val normalized = title.normalizedOrNull() ?: return null
+        val separator = TITLE_ARTIST_SEPARATORS.firstOrNull { normalized.contains(it) } ?: return null
+        return normalized.substringBefore(separator).normalizedOrNull()
+    }
+
+    private fun parseArtist(description: String?): String? {
+        val normalized = description.normalizedOrNull() ?: return null
+        val separator = DESCRIPTION_SEPARATORS.firstOrNull { normalized.contains(it) }
+        return if (separator == null) {
+            null
+        } else {
+            normalized.substringBefore(separator).normalizedOrNull()
+        }
     }
 
     private fun String.decodeHtml(): String {
@@ -189,9 +268,41 @@ internal object DownloadParsing {
             .replace("&amp;", "&")
             .replace("&quot;", "\"")
             .replace("&#39;", "'")
+            .replace("&#x27;", "'")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
+            .replace("&nbsp;", " ")
     }
 
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
+
+    internal data class AppleMusicLookupKey(
+        val countryCode: String?,
+        val resourceId: String,
+        val trackId: String?,
+    ) {
+        val lookupId: String
+            get() = trackId ?: resourceId
+    }
+
+    private val APPLE_MUSIC_PATTERN = Regex(
+        """https?://music\.apple\.com/([a-z]{2})/(album|song)/[^/?]+/(\d+)(?:[^\s]*[?&]i=(\d+))?""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val DESCRIPTION_SEPARATORS = listOf(
+        " • ",
+        " | ",
+        " — ",
+        " - ",
+        "В·",
+        "вЂў",
+        "|",
+    )
+
+    private val TITLE_ARTIST_SEPARATORS = listOf(
+        " - ",
+        " — ",
+        " | ",
+    )
 }

@@ -6,9 +6,6 @@ import com.luxmusic.android.data.DownloadState
 import com.luxmusic.android.data.LibraryStore
 import com.luxmusic.android.data.MetadataExtractor
 import com.luxmusic.android.data.Track
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.yausername.youtubedl_android.mapper.VideoInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +14,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.math.abs
 
 class LinkDownloader(
     private val context: Context,
@@ -27,23 +23,28 @@ class LinkDownloader(
     private val mutableState = MutableStateFlow(DownloadState())
     val state: StateFlow<DownloadState> = mutableState.asStateFlow()
 
+    private val backend = YtDlpMediaDownloadBackend(context)
+    private val metadataResolver = CompositeDownloadMetadataResolver(
+        backend = backend,
+        httpClient = UrlConnectionMetadataHttpClient(),
+    )
+    private val executor = LinkDownloadExecutor(
+        planner = DownloadPlanner(),
+        metadataResolver = metadataResolver,
+        backend = backend,
+        importer = LibraryStoreImporter(libraryStore),
+        audioInspector = MetadataAudioInspector(MetadataExtractor(context)),
+        workspaceManager = CacheWorkspaceManager(context.cacheDir),
+    )
+
     @Volatile
     private var initialized = false
-
-    @Volatile
-    private var stableRefreshAttempted = false
-
-    @Volatile
-    private var nightlyRefreshAttempted = false
-
-    private val youtubeDl by lazy { YoutubeDL.getInstance() }
-    private val metadataExtractor by lazy { MetadataExtractor(context) }
 
     fun initialize() {
         if (initialized) return
 
         try {
-            youtubeDl.init(context)
+            backend.initialize()
             initialized = true
             mutableState.value = DownloadState(
                 isAvailable = true,
@@ -66,419 +67,66 @@ class LinkDownloader(
             )
         }
 
-        val service = detectService(url)
-        val session = accountStore.sessionFor(service)
-        if (service.requiresAccount && session == null) {
-            val error = IllegalStateException(accountRequiredMessage(service))
-            mutableState.value = mutableState.value.copy(
-                isRunning = false,
-                progress = 0f,
-                statusMessage = "Для ${service.title} требуется аккаунт.",
-                errorMessage = error.message,
-                isAvailable = initialized,
-            )
-            return@withContext Result.failure(error)
-        }
-
+        val sourceService = DownloadParsing.detectService(url)
         mutableState.value = mutableState.value.copy(
             isRunning = true,
             progress = 0f,
-            statusMessage = "Подготавливаем загрузчик для ${service.title}.",
+            statusMessage = "Подготавливаем загрузку для ${sourceService.title}.",
             errorMessage = null,
             isAvailable = true,
         )
 
         try {
-            ensureStableExtractors(service)
-            var sourceMetadata = resolveSourceMetadata(url, service, session)
-
-            val imported = try {
-                performDownloadAttempt(
-                    requestUrl = url,
-                    sourceUrl = url,
-                    service = service,
-                    expectedMetadata = sourceMetadata,
-                    session = session,
+            val result = executor.execute(
+                sourceUrl = url,
+                sessionProvider = { service -> accountStore.sessionFor(service)?.toDownloadSession() },
+            ) { progress, message ->
+                mutableState.value = mutableState.value.copy(
+                    isRunning = true,
+                    progress = progress,
+                    statusMessage = message,
+                    errorMessage = null,
+                    isAvailable = true,
                 )
-            } catch (directError: Throwable) {
-                var resolvedError = directError
-
-                if (shouldRetryWithNightly(service)) {
-                    ensureNightlyExtractors(service)
-                    sourceMetadata = resolveSourceMetadata(url, service, session)
-                    runCatching {
-                        performDownloadAttempt(
-                            requestUrl = url,
-                            sourceUrl = url,
-                            service = service,
-                            expectedMetadata = sourceMetadata,
-                            session = session,
-                        )
-                    }.getOrElse { nightlyError ->
-                        resolvedError = nightlyError
-                        emptyList()
-                    }
-                }
-
-                val fallbackQuery = buildYoutubeFallbackQuery(sourceMetadata)
-                if (shouldTryYoutubeFallback(service) && fallbackQuery != null) {
-                    val youtubeSession = accountStore.sessionFor(DownloadService.YOUTUBE)
-                    mutableState.value = mutableState.value.copy(
-                        progress = 0.12f,
-                        statusMessage = "Прямая загрузка из ${service.title} не удалась. Ищем совпадение на YouTube.",
-                    )
-
-                    performDownloadAttempt(
-                        requestUrl = "ytsearch1:$fallbackQuery",
-                        sourceUrl = url,
-                        service = DownloadService.YOUTUBE,
-                        expectedMetadata = resolveSourceMetadata(
-                            url = "ytsearch1:$fallbackQuery",
-                            service = DownloadService.YOUTUBE,
-                            session = youtubeSession,
-                        ),
-                        session = youtubeSession,
-                    )
-                } else {
-                    throw resolvedError
-                }
             }
 
             mutableState.value = mutableState.value.copy(
                 isRunning = false,
                 progress = 1f,
-                statusMessage = "Сохранено ${imported.size} трек(ов) из ${service.title} в офлайн-библиотеку.",
+                statusMessage = successMessage(result),
                 errorMessage = null,
                 isAvailable = true,
             )
 
-            Result.success(imported)
+            Result.success(result.tracks)
         } catch (error: Throwable) {
             mutableState.value = mutableState.value.copy(
                 isRunning = false,
                 progress = 0f,
-                statusMessage = "Не удалось обработать ссылку ${service.title}.",
-                errorMessage = humanizeError(service, error, session != null),
-                isAvailable = initialized,
+                statusMessage = "Не удалось обработать ссылку ${sourceService.title}.",
+                errorMessage = humanizeError(
+                    service = sourceService,
+                    error = error,
+                    hasSession = accountStore.sessionFor(sourceService) != null,
+                ),
+                isAvailable = true,
             )
 
             Result.failure(error)
         }
     }
 
-    private fun ensureStableExtractors(service: DownloadService) {
-        if (stableRefreshAttempted) return
-        stableRefreshAttempted = true
-
-        mutableState.value = mutableState.value.copy(
-            progress = 0.02f,
-            statusMessage = "Обновляем extractor-модуль для ${service.title}.",
-        )
-
-        runCatching {
-            youtubeDl.updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)
-        }
-    }
-
-    private fun ensureNightlyExtractors(service: DownloadService) {
-        if (nightlyRefreshAttempted) return
-        nightlyRefreshAttempted = true
-
-        mutableState.value = mutableState.value.copy(
-            progress = 0.06f,
-            statusMessage = "Повторяем запрос после обновления nightly extractor для ${service.title}.",
-        )
-
-        runCatching {
-            youtubeDl.updateYoutubeDL(context, YoutubeDL.UpdateChannel._NIGHTLY)
-        }
-    }
-
-    private fun fetchInfo(
-        url: String,
-        service: DownloadService,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): VideoInfo? {
-        val workspace = createWorkspace("info")
-        return try {
-            runCatching { youtubeDl.getInfo(buildInfoRequest(url, workspace, service, session)) }.getOrNull()
-        } finally {
-            cleanup(workspace)
-        }
-    }
-
-    private suspend fun performDownloadAttempt(
-        requestUrl: String,
-        sourceUrl: String,
-        service: DownloadService,
-        expectedMetadata: SourceMetadata?,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): List<Track> {
-        val jobDir = createWorkspace("download")
-        val jobId = "luxmusic-${System.currentTimeMillis()}"
-
-        return try {
-            mutableState.value = mutableState.value.copy(
-                progress = 0.1f,
-                statusMessage = "Пробуем обработать ссылку: ${service.title}.",
-            )
-
-            youtubeDl.execute(buildDownloadRequest(requestUrl, jobDir, service, session), jobId) { progress, _, line ->
-                mutableState.value = mutableState.value.copy(
-                    progress = progress.coerceIn(0f, 100f) / 100f,
-                    statusMessage = line.takeIf { it.isNotBlank() }
-                        ?: "Загружаем и сохраняем трек из ${service.title}.",
-                )
+    private fun successMessage(result: DownloadExecutionResult): String {
+        val tracksCount = result.tracks.size
+        return when (result.finalAttempt.kind) {
+            DownloadAttemptKind.DIRECT -> {
+                "Сохранено $tracksCount трек(ов) из ${result.finalAttempt.sourceService.title} в офлайн-библиотеку."
             }
 
-            val files = jobDir.listFiles()?.toList().orEmpty()
-            val audioFiles = files.filter { file ->
-                file.isFile && file.extension.lowercase() in SUPPORTED_AUDIO_EXTENSIONS
-            }
-
-            if (audioFiles.isEmpty()) {
-                throw IllegalStateException("После обработки ссылки не найден ни один подходящий аудиофайл.")
-            }
-
-            val selectedAudioFiles = selectAudioFiles(
-                audioFiles = audioFiles,
-                expectedDurationMs = expectedMetadata?.durationMs,
-                service = service,
-            )
-
-            val imported = libraryStore.importDownloadedFiles(
-                audioFiles = selectedAudioFiles,
-                sourceUrl = sourceUrl,
-                companionResolver = { audio ->
-                    files.filter { companion ->
-                        companion != audio &&
-                            companion.isFile &&
-                            (
-                                companion.nameWithoutExtension.equals(audio.nameWithoutExtension, ignoreCase = true) ||
-                                    companion.nameWithoutExtension.startsWith(audio.nameWithoutExtension, ignoreCase = true)
-                                )
-                    }
-                },
-            )
-
-            if (imported.isEmpty()) {
-                throw IllegalStateException("Файлы скачались, но не были импортированы в библиотеку.")
-            }
-
-            imported
-        } finally {
-            cleanup(jobDir)
-        }
-    }
-
-    private fun selectAudioFiles(
-        audioFiles: List<File>,
-        expectedDurationMs: Long?,
-        service: DownloadService,
-    ): List<File> {
-        val significantFiles = audioFiles
-            .filter { it.length() >= MIN_AUDIO_BYTES }
-            .ifEmpty { audioFiles }
-
-        if (significantFiles.size == 1) {
-            validateAudioFile(significantFiles.first(), expectedDurationMs, service)
-            return significantFiles
-        }
-
-        val bestFile = significantFiles.maxWithOrNull(
-            compareBy<File> { candidateScore(it, expectedDurationMs) }
-                .thenByDescending(File::length),
-        ) ?: significantFiles.first()
-
-        validateAudioFile(bestFile, expectedDurationMs, service)
-        return listOf(bestFile)
-    }
-
-    private fun candidateScore(file: File, expectedDurationMs: Long?): Long {
-        val durationMs = metadataExtractor.probeDurationMs(file)
-        return when {
-            expectedDurationMs != null && durationMs > 0L -> -abs(expectedDurationMs - durationMs)
-            durationMs > 0L -> durationMs
-            else -> 0L
-        }
-    }
-
-    private fun validateAudioFile(
-        file: File,
-        expectedDurationMs: Long?,
-        service: DownloadService,
-    ) {
-        val actualDurationMs = metadataExtractor.probeDurationMs(file)
-
-        if (actualDurationMs <= 0L && file.length() < MIN_AUDIO_BYTES) {
-            throw IllegalStateException("Сервис вернул пустой или неполный аудиофайл.")
-        }
-
-        if (
-            expectedDurationMs != null &&
-            expectedDurationMs >= LONG_TRACK_THRESHOLD_MS &&
-            actualDurationMs in 1 until (expectedDurationMs * MIN_DURATION_RATIO).toLong()
-        ) {
-            throw IllegalStateException(partialTrackHint(service, actualDurationMs, expectedDurationMs))
-        }
-    }
-
-    private fun partialTrackHint(
-        service: DownloadService,
-        actualDurationMs: Long,
-        expectedDurationMs: Long,
-    ): String {
-        return when (service) {
-            DownloadService.SOUNDCLOUD -> {
-                "Похоже, сервис отдал превью вместо полного трека: ${formatMinutes(actualDurationMs)} из ${formatMinutes(expectedDurationMs)}."
-            }
-
-            DownloadService.TIKTOK -> {
-                "Ссылка TikTok вернула только аудио клипа: ${formatMinutes(actualDurationMs)} из ${formatMinutes(expectedDurationMs)}."
-            }
-
-            else -> {
-                "Скачанный файл заметно короче ожидаемого: ${formatMinutes(actualDurationMs)} из ${formatMinutes(expectedDurationMs)}."
+            DownloadAttemptKind.MATCHED_SEARCH -> {
+                "Сохранено $tracksCount трек(ов). Ссылка ${result.finalAttempt.sourceService.title} была сопоставлена с офлайн-копией через ${result.finalAttempt.requestService.title}."
             }
         }
-    }
-
-    private fun buildDownloadRequest(
-        url: String,
-        jobDir: File,
-        service: DownloadService,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): YoutubeDLRequest {
-        val request = YoutubeDLRequest(url)
-            .addOption(
-                "-f",
-                "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[acodec!=none]/best[acodec!=none]/bestaudio/best",
-            )
-            .addOption("--no-playlist")
-            .addOption("--no-warnings")
-            .addOption("--newline")
-            .addOption("--restrict-filenames")
-            .addOption("--no-part")
-            .addOption("--abort-on-unavailable-fragments")
-            .addOption("--retries", serviceRequestRetries(service))
-            .addOption("--fragment-retries", serviceFragmentRetries(service))
-            .addOption("--extractor-retries", serviceExtractorRetries(service))
-            .addOption("--socket-timeout", serviceSocketTimeoutSeconds(service))
-            .addOption("--sleep-requests", serviceSleepRequestsSeconds(service, session))
-            .addOption("--write-thumbnail")
-            .addOption("--write-info-json")
-            .addOption("--write-auto-subs")
-            .addOption("--sub-langs", "all")
-            .addOption("-o", jobDir.absolutePath + "/%(title).140B.%(ext)s")
-
-        return applySessionOptions(request, jobDir, service, session)
-    }
-
-    private fun buildInfoRequest(
-        url: String,
-        jobDir: File,
-        service: DownloadService,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): YoutubeDLRequest {
-        val request = YoutubeDLRequest(url)
-            .addOption("--no-playlist")
-            .addOption("--no-warnings")
-            .addOption("--socket-timeout", serviceSocketTimeoutSeconds(service))
-            .addOption("--sleep-requests", serviceSleepRequestsSeconds(service, session))
-
-        return applySessionOptions(request, jobDir, service, session)
-    }
-
-    private fun buildYoutubeFallbackQuery(metadata: SourceMetadata?): String? {
-        return DownloadParsing.buildYoutubeFallbackQuery(metadata?.toDownloadSourceMetadata())
-    }
-
-    private fun applySessionOptions(
-        request: YoutubeDLRequest,
-        jobDir: File,
-        service: DownloadService,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): YoutubeDLRequest {
-        if (session == null) return request
-
-        val cookieFile = File(jobDir, "${service.name.lowercase()}-cookies.txt").apply {
-            writeText(session.cookiesText)
-        }
-        request.addOption("--cookies", cookieFile.absolutePath)
-        session.userAgent?.takeIf { it.isNotBlank() }?.let { userAgent ->
-            request.addOption("--user-agent", userAgent)
-        }
-        return request
-    }
-
-    private fun resolveSourceMetadata(
-        url: String,
-        service: DownloadService,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): SourceMetadata? {
-        val info = fetchInfo(url, service, session)
-        if (info != null) {
-            return info.toSourceMetadata()
-        }
-
-        if (url.startsWith("ytsearch", ignoreCase = true)) {
-            return SourceMetadata(queryHint = url.substringAfter(':').trim())
-        }
-
-        return fetchWebPageMetadata(url, service, session)
-    }
-
-    private fun fetchWebPageMetadata(
-        url: String,
-        service: DownloadService,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): SourceMetadata? {
-        return runCatching {
-            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                requestMethod = "GET"
-                connectTimeout = serviceSocketTimeoutSeconds(service) * 1_000
-                readTimeout = serviceSocketTimeoutSeconds(service) * 1_000
-                setRequestProperty("User-Agent", session?.userAgent ?: FALLBACK_USER_AGENT)
-                cookieHeaderFor(url, session)?.let { setRequestProperty("Cookie", it) }
-            }
-
-            connection.inputStream.bufferedReader().use { reader ->
-                htmlToSourceMetadata(reader.readText())
-            }
-        }.getOrNull()
-    }
-
-    private fun htmlToSourceMetadata(html: String): SourceMetadata? {
-        return DownloadParsing.htmlToSourceMetadata(html)?.toSourceMetadata()
-    }
-
-    private fun cookieHeaderFor(
-        url: String,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): String? {
-        if (session == null) return null
-        val host = runCatching { URL(url).host.lowercase() }.getOrNull() ?: return null
-        return DownloadParsing.cookieHeaderFor(host, session.cookiesText)
-    }
-
-    private fun shouldRetryWithNightly(service: DownloadService): Boolean {
-        return service in DIRECT_RETRY_SERVICES && !nightlyRefreshAttempted
-    }
-
-    private fun shouldTryYoutubeFallback(service: DownloadService): Boolean {
-        return service in FALLBACK_SEARCH_SERVICES
-    }
-
-    private fun cleanup(jobDir: File) {
-        jobDir.listFiles()?.forEach { file ->
-            runCatching { file.delete() }
-        }
-        runCatching { jobDir.delete() }
-    }
-
-    private fun detectService(url: String): DownloadService {
-        return DownloadParsing.detectService(url)
     }
 
     private fun humanizeError(
@@ -494,16 +142,23 @@ class LinkDownloader(
                 if (hasSession) {
                     "YouTube вернул 429 даже с подключенной сессией. Подождите немного и повторите попытку позже."
                 } else {
-                    "YouTube вернул 429. На вкладке загрузки откройте вход для YouTube прямо в приложении и повторите попытку."
+                    "YouTube вернул 429. Откройте вход для YouTube во вкладке загрузки и повторите попытку."
                 }
             }
 
-            service == DownloadService.YANDEX_MUSIC &&
-                rawMessage.contains("timed out", ignoreCase = true) -> {
-                if (hasSession) {
-                    "Яндекс Музыка отвечает слишком долго даже с подключенной сессией. LuxMusic увеличил таймаут, но сервис все равно не успел ответить."
-                } else {
-                    "Яндекс Музыка не ответила вовремя. Подключите аккаунт Яндекса прямо в приложении и повторите попытку."
+            service == DownloadService.SPOTIFY || service == DownloadService.APPLE_MUSIC -> {
+                rawMessage.ifBlank {
+                    "Для ${service.title} не получилось извлечь метаданные, поэтому LuxMusic не смог подобрать офлайн-копию."
+                }
+            }
+
+            service == DownloadService.YANDEX_MUSIC || service == DownloadService.VK_MUSIC -> {
+                rawMessage.ifBlank {
+                    if (hasSession) {
+                        "Прямая загрузка из ${service.title} не удалась, и fallback-поиск не нашёл совпадение."
+                    } else {
+                        "Прямая загрузка из ${service.title} без сессии не удалась. Подключите аккаунт или попробуйте другую ссылку."
+                    }
                 }
             }
 
@@ -515,125 +170,79 @@ class LinkDownloader(
     private fun serviceFailureHint(service: DownloadService): String {
         return when (service) {
             DownloadService.SPOTIFY ->
-                "Spotify защищает потоковый контент DRM, поэтому прямая загрузка может не сработать даже с аккаунтом."
+                "Spotify не отдаёт исходный аудиофайл через официальный Web API, поэтому LuxMusic работает только через метаданные и поиск совпадения."
+
             DownloadService.APPLE_MUSIC ->
-                "Apple Music использует закрытые потоки и нестабильный extractor. LuxMusic попробует fallback по метаданным, если это возможно."
+                "Apple Music не отдаёт исходный аудиофайл через открытые API, поэтому LuxMusic работает через метаданные и поиск совпадения."
+
             DownloadService.YANDEX_MUSIC, DownloadService.VK_MUSIC ->
                 "Для этого сервиса загрузка зависит от актуальности extractor и от подключенной пользовательской сессии."
+
             DownloadService.YOUTUBE ->
                 "Не удалось скачать трек с YouTube. При 429 подключите аккаунт и повторите попытку."
+
             else -> "Не удалось скачать музыку по ссылке."
         }
     }
 
-    private fun serviceRequestRetries(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 15
-        else -> 10
-    }
-
-    private fun serviceFragmentRetries(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 15
-        else -> 10
-    }
-
-    private fun serviceExtractorRetries(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 6
-        else -> 3
-    }
-
-    private fun serviceSocketTimeoutSeconds(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 60
-        else -> 30
-    }
-
-    private fun serviceSleepRequestsSeconds(
-        service: DownloadService,
-        session: DownloadAccountStore.StoredAccountSession?,
-    ): Int = when (service) {
-        DownloadService.YOUTUBE -> if (session == null) 3 else 1
-        else -> 1
-    }
-
-    private fun accountRequiredMessage(service: DownloadService): String {
-        return "Для ${service.title} сначала подключите аккаунт на вкладке загрузки: войдите прямо в приложении и завершите авторизацию."
-    }
-
-    private fun VideoInfo.toSourceMetadata(): SourceMetadata = SourceMetadata(
-        title = title.normalizedOrNull() ?: fulltitle.normalizedOrNull(),
-        artist = uploader.normalizedOrNull(),
-        durationMs = duration.takeIf { it > 0 }?.times(1_000L),
-        queryHint = listOfNotNull(uploader.normalizedOrNull(), title.normalizedOrNull())
-            .joinToString(" ")
-            .takeIf { it.isNotBlank() },
-    )
-
-    private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
-
-    private fun formatMinutes(durationMs: Long): String {
-        val totalSeconds = durationMs / 1_000
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return "%d:%02d".format(minutes, seconds)
-    }
-
-    private fun createWorkspace(prefix: String): File {
-        return File(context.cacheDir, "luxmusic-$prefix-${System.currentTimeMillis()}").apply { mkdirs() }
-    }
-
-    private data class SourceMetadata(
-        val title: String? = null,
-        val artist: String? = null,
-        val durationMs: Long? = null,
-        val queryHint: String? = null,
-    )
-
-    private fun SourceMetadata.toDownloadSourceMetadata(): DownloadSourceMetadata = DownloadSourceMetadata(
-        title = title,
-        artist = artist,
-        durationMs = durationMs,
-        queryHint = queryHint,
-    )
-
-    private fun DownloadSourceMetadata.toSourceMetadata(): SourceMetadata = SourceMetadata(
-        title = title,
-        artist = artist,
-        durationMs = durationMs,
-        queryHint = queryHint,
-    )
-
-    private companion object {
-        const val MIN_AUDIO_BYTES = 96 * 1_024L
-        const val LONG_TRACK_THRESHOLD_MS = 90_000L
-        const val MIN_DURATION_RATIO = 0.6
-        const val FALLBACK_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 14; LuxMusic) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36"
-
-        val DIRECT_RETRY_SERVICES = setOf(
-            DownloadService.YOUTUBE,
-            DownloadService.SOUNDCLOUD,
-            DownloadService.TIKTOK,
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
+    private fun DownloadAccountStore.StoredAccountSession.toDownloadSession(): DownloadSession {
+        return DownloadSession(
+            cookiesText = cookiesText,
+            userAgent = userAgent,
         )
+    }
 
-        val FALLBACK_SEARCH_SERVICES = setOf(
-            DownloadService.SPOTIFY,
-            DownloadService.APPLE_MUSIC,
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
-            DownloadService.UNKNOWN,
-        )
+    private class LibraryStoreImporter(
+        private val libraryStore: LibraryStore,
+    ) : DownloadedTrackImporter {
+        override suspend fun importDownloadedFiles(
+            audioFiles: List<File>,
+            sourceUrl: String?,
+            companionResolver: (File) -> List<File>,
+        ): List<Track> {
+            return libraryStore.importDownloadedFiles(
+                audioFiles = audioFiles,
+                sourceUrl = sourceUrl,
+                companionResolver = companionResolver,
+            )
+        }
+    }
 
-        val SUPPORTED_AUDIO_EXTENSIONS = setOf(
-            "mp3",
-            "m4a",
-            "aac",
-            "flac",
-            "wav",
-            "ogg",
-            "opus",
-            "webm",
-            "mp4",
-        )
+    private class MetadataAudioInspector(
+        private val extractor: MetadataExtractor,
+    ) : DownloadAudioInspector {
+        override fun probeDurationMs(file: File): Long = extractor.probeDurationMs(file)
+    }
+
+    private class CacheWorkspaceManager(
+        private val cacheDir: File,
+    ) : DownloadWorkspaceManager {
+        override fun createWorkspace(prefix: String): File {
+            return File(cacheDir, "luxmusic-$prefix-${System.currentTimeMillis()}").apply { mkdirs() }
+        }
+
+        override fun cleanup(workspace: File) {
+            runCatching { workspace.deleteRecursively() }
+        }
+    }
+
+    private class UrlConnectionMetadataHttpClient : MetadataHttpClient {
+        override fun getText(url: String, headers: Map<String, String>): String? {
+            return runCatching {
+                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    requestMethod = "GET"
+                    connectTimeout = TIMEOUT_MS
+                    readTimeout = TIMEOUT_MS
+                    headers.forEach { (name, value) -> setRequestProperty(name, value) }
+                }
+
+                connection.inputStream.bufferedReader().use { it.readText() }
+            }.getOrNull()
+        }
+
+        private companion object {
+            const val TIMEOUT_MS = 30_000
+        }
     }
 }

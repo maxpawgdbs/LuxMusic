@@ -12,6 +12,7 @@ class DownloadParsingTest {
     @Test
     fun `detectService recognizes supported platforms`() {
         assertEquals(DownloadService.YOUTUBE, DownloadParsing.detectService("https://youtu.be/demo"))
+        assertEquals(DownloadService.TIKTOK, DownloadParsing.detectService("https://vt.tiktok.com/demo"))
         assertEquals(DownloadService.YANDEX_MUSIC, DownloadParsing.detectService("https://music.yandex.ru/album/1/track/2"))
         assertEquals(DownloadService.SPOTIFY, DownloadParsing.detectService("https://open.spotify.com/track/abc"))
         assertEquals(DownloadService.YOUTUBE, DownloadParsing.detectService("ytsearch1:artist song"))
@@ -48,7 +49,7 @@ class DownloadParsingTest {
     }
 
     @Test
-    fun `cookieHeaderFor returns only cookies for matching host`() {
+    fun `cookieHeaderForHost returns only cookies for matching host`() {
         val cookiesText = """
             # Netscape HTTP Cookie File
             .youtube.com	TRUE	/	TRUE	2147483647	SID	abc123
@@ -58,10 +59,10 @@ class DownloadParsingTest {
 
         assertEquals(
             "SID=abc123; PREF=wide",
-            DownloadParsing.cookieHeaderFor("music.youtube.com", cookiesText),
+            DownloadParsing.cookieHeaderForHost("music.youtube.com", cookiesText),
         )
-        assertEquals("SID=abc123", DownloadParsing.cookieHeaderFor("m.youtube.com", cookiesText))
-        assertNull(DownloadParsing.cookieHeaderFor("soundcloud.com", cookiesText))
+        assertEquals("SID=abc123", DownloadParsing.cookieHeaderForHost("m.youtube.com", cookiesText))
+        assertNull(DownloadParsing.cookieHeaderForHost("soundcloud.com", cookiesText))
     }
 
     @Test
@@ -113,7 +114,7 @@ class DownloadParsingTest {
         assertNotNull(metadata)
         assertEquals("Song & More", metadata?.title)
         assertEquals("Artist", metadata?.artist)
-        assertEquals("Song & More Artist | Album version", metadata?.queryHint)
+        assertEquals("Artist Song & More", metadata?.queryHint)
     }
 
     @Test
@@ -122,7 +123,7 @@ class DownloadParsingTest {
             <html>
             <head>
             <meta property="og:title" content="Track Title" />
-            <meta property="og:description" content="Artist • Album — Remaster" />
+            <meta property="og:description" content="Artist вЂў Album вЂ” Remaster" />
             </head>
             </html>
         """.trimIndent()
@@ -131,7 +132,7 @@ class DownloadParsingTest {
 
         assertNotNull(metadata)
         assertEquals("Artist", metadata?.artist)
-        assertEquals("Track Title Artist • Album — Remaster", metadata?.queryHint)
+        assertEquals("Artist Track Title", metadata?.queryHint)
     }
 
     @Test
@@ -154,5 +155,18 @@ class DownloadParsingTest {
 
         assertEquals("Artist Name Track Name audio", DownloadParsing.buildYoutubeFallbackQuery(metadata))
         assertNull(DownloadParsing.buildYoutubeFallbackQuery(DownloadSourceMetadata()))
+    }
+
+    @Test
+    fun `appleMusicLookupKey extracts track id and country`() {
+        val key = DownloadParsing.appleMusicLookupKey(
+            "https://music.apple.com/us/album/song-name/1712345678?i=1712345680",
+        )
+
+        assertNotNull(key)
+        assertEquals("us", key?.countryCode)
+        assertEquals("1712345678", key?.resourceId)
+        assertEquals("1712345680", key?.trackId)
+        assertEquals("1712345680", key?.lookupId)
     }
 }

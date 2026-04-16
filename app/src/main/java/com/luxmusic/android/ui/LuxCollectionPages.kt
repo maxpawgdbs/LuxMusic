@@ -65,8 +65,6 @@ private val accountServices = listOf(
     DownloadService.YOUTUBE,
     DownloadService.YANDEX_MUSIC,
     DownloadService.VK_MUSIC,
-    DownloadService.APPLE_MUSIC,
-    DownloadService.SPOTIFY,
 )
 
 @Composable
@@ -491,7 +489,7 @@ internal fun LuxDownloadPage(
                 ) {
                     Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "Для YouTube, SoundCloud и TikTok используется прямой extractor. Для платных и закрытых площадок можно войти прямо внутри LuxMusic: после авторизации приложение само сохранит cookies сессии. Ручной импорт cookies оставлен как запасной вариант.",
+                        "YouTube, TikTok и SoundCloud качаются напрямую через extractor. Yandex Music и VK сначала пробуются напрямую, а при неудаче переходят на поиск совпадения по метаданным. Apple Music и Spotify работают через извлечение метаданных и подбор офлайн-копии.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -499,16 +497,12 @@ internal fun LuxDownloadPage(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        downloadServices.forEachIndexed { index, service ->
+                        downloadServices.forEach { service ->
                             AssistChip(
                                 onClick = {},
                                 label = { Text(service) },
                                 leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
-                                colors = if (index < 3) {
-                                    luxSelectedAssistChipColors()
-                                } else {
-                                    luxAssistChipColors()
-                                },
+                                colors = luxSelectedAssistChipColors(),
                             )
                         }
                     }
@@ -595,7 +589,8 @@ private fun DownloadAccountCard(
                     Text(
                         when {
                             accountState.isConnected -> "Сессия подключена"
-                            service.requiresAccount -> "Для загрузки нужен аккаунт"
+                            service == DownloadService.YANDEX_MUSIC || service == DownloadService.VK_MUSIC ->
+                                "Сессия повышает шанс прямой загрузки"
                             service.accountRecommended -> "Аккаунт помогает обойти 429 и лимиты"
                             else -> "Аккаунт не обязателен"
                         },
