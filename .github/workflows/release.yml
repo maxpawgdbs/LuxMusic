@@ -77,13 +77,15 @@ jobs:
         with:
           tag_name: ${{ github.ref == 'refs/heads/main' && 'edge' || github.ref_name }}
           name: ${{ github.ref == 'refs/heads/main' && 'LuxMusic Edge' || github.ref_name }}
-          prerelease: ${{ github.ref == 'refs/heads/main' }}
-          make_latest: ${{ github.ref == 'refs/heads/main' && 'false' || 'true' }}
+          prerelease: false
+          make_latest: true
           target_commitish: ${{ github.sha }}
+          overwrite_files: true
+          preserve_order: true
           generate_release_notes: true
           files: ${{ env.RELEASE_FILES }}
           body: |
             APK assets:
             - `app-release.apk`: universal signed release build with bundled update-safe keystore
             - `versionCode` auto-increments on every workflow run, so edge releases install over previous ones
-            - `edge` prerelease is updated automatically on every push to `main`
+            - `edge` rolling release is updated automatically on every push to `main`
