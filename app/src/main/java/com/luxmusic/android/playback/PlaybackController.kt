@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import androidx.core.app.NotificationCompat
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -15,9 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
-import androidx.media3.ui.PlayerNotificationManager
 import com.luxmusic.android.MainActivity
-import com.luxmusic.android.R
 import com.luxmusic.android.data.PlaybackState
 import com.luxmusic.android.data.RepeatMode
 import com.luxmusic.android.data.Track
@@ -33,6 +30,16 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
+data class PlaybackNotificationSnapshot(
+    val title: String,
+    val contentText: String,
+    val subText: String,
+    val isPlaying: Boolean,
+    val positionMs: Long,
+    val durationMs: Long,
+    val artwork: Bitmap?,
+)
+
 @UnstableApi
 class PlaybackController(context: Context) {
     private val appContext = context.applicationContext
@@ -41,53 +48,27 @@ class PlaybackController(context: Context) {
         .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
         .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
         .build().apply {
-        setAudioAttributes(
-            AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                .setUsage(C.USAGE_MEDIA)
-                .build(),
-            true,
-        )
-        setHandleAudioBecomingNoisy(true)
-    }
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .setUsage(C.USAGE_MEDIA)
+                    .build(),
+                true,
+            )
+            setHandleAudioBecomingNoisy(true)
+        }
     private val mutableState = MutableStateFlow(PlaybackState())
 
     private var currentQueue: List<Track> = emptyList()
-    private var currentQueueTitle: String = "Библиотека"
+    private var currentQueueTitle: String = DEFAULT_QUEUE_TITLE
     private var cachedNotificationArtworkPath: String? = null
     private var cachedNotificationArtwork: Bitmap? = null
     private var playbackForegroundServiceActive = false
+    private var lastNotificationSyncState: NotificationSyncState? = null
 
     private val mediaSession = MediaSession.Builder(appContext, player)
         .setId("luxmusic_media_session")
         .build()
-
-    private val notificationManager = PlayerNotificationManager.Builder(
-        appContext,
-        PLAYBACK_NOTIFICATION_ID,
-        PLAYBACK_CHANNEL_ID,
-    )
-        .setChannelNameResourceId(R.string.playback_notification_channel_name)
-        .setChannelDescriptionResourceId(R.string.playback_notification_channel_description)
-        .setMediaDescriptionAdapter(NotificationDescriptionAdapter())
-        .setNotificationListener(PlaybackNotificationListener())
-        .setCustomActionReceiver(RepeatActionReceiver())
-        .setSmallIconResourceId(android.R.drawable.ic_media_play)
-        .build().apply {
-            setColorized(true)
-            setColor(0xFF215EEA.toInt())
-            setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            setUseChronometer(true)
-            setUseFastForwardAction(true)
-            setUseRewindAction(true)
-            setUseStopAction(false)
-            setUsePlayPauseActions(true)
-            setUseNextActionInCompactView(true)
-            setUsePreviousActionInCompactView(true)
-            setMediaSessionToken(mediaSession.platformToken)
-            setPlayer(player)
-        }
 
     val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
 
@@ -194,6 +175,20 @@ class PlaybackController(context: Context) {
         publishState()
     }
 
+    fun seekBack() {
+        if (player.mediaItemCount == 0) return
+
+        player.seekBack()
+        publishState()
+    }
+
+    fun seekForward() {
+        if (player.mediaItemCount == 0) return
+
+        player.seekForward()
+        publishState()
+    }
+
     fun toggleShuffle() {
         player.shuffleModeEnabled = !player.shuffleModeEnabled
         publishState()
@@ -223,7 +218,7 @@ class PlaybackController(context: Context) {
         }
 
         if (currentQueue.isEmpty()) {
-            currentQueueTitle = "Библиотека"
+            currentQueueTitle = DEFAULT_QUEUE_TITLE
             player.stop()
             player.clearMediaItems()
         }
@@ -231,17 +226,39 @@ class PlaybackController(context: Context) {
         publishState()
     }
 
+    fun notificationSnapshot(): PlaybackNotificationSnapshot? {
+        val track = currentTrack() ?: return null
+        val durationMs = player.duration
+            .takeIf { it > 0L }
+            ?: track.durationMs.takeIf { it > 0L }
+            ?: 0L
+        val safeDurationMs = durationMs.coerceAtLeast(0L)
+        val safePositionMs = player.currentPosition
+            .coerceAtLeast(0L)
+            .coerceAtMost(safeDurationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        return PlaybackNotificationSnapshot(
+            title = track.title.ifBlank { "LuxMusic" },
+            contentText = trackDetails(track),
+            subText = notificationSubText(),
+            isPlaying = player.isPlaying,
+            positionMs = safePositionMs,
+            durationMs = safeDurationMs,
+            artwork = currentArtwork(),
+        )
+    }
+
+    fun notificationMediaSession(): MediaSession = mediaSession
+
     fun release() {
         scope.cancel()
-        notificationManager.setPlayer(null)
         PlaybackNotificationService.stop(appContext)
         playbackForegroundServiceActive = false
+        lastNotificationSyncState = null
         mediaSession.release()
         player.release()
     }
 
     private fun publishState() {
-        notificationManager.invalidate()
         mutableState.value = PlaybackState(
             currentTrackId = player.currentMediaItem?.mediaId,
             queueTrackIds = currentQueue.map(Track::id),
@@ -256,6 +273,38 @@ class PlaybackController(context: Context) {
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeIf { it > 0L } ?: 0L,
         )
+        syncPlaybackNotification()
+    }
+
+    private fun syncPlaybackNotification() {
+        val syncState = notificationSyncState()
+        if (syncState == null) {
+            if (playbackForegroundServiceActive) {
+                PlaybackNotificationService.stop(appContext)
+                playbackForegroundServiceActive = false
+            }
+            lastNotificationSyncState = null
+            return
+        }
+
+        if (!playbackForegroundServiceActive || syncState != lastNotificationSyncState) {
+            PlaybackNotificationService.startOrUpdate(appContext)
+            playbackForegroundServiceActive = true
+            lastNotificationSyncState = syncState
+        }
+    }
+
+    private fun notificationSyncState(): NotificationSyncState? {
+        val track = currentTrack() ?: return null
+        return NotificationSyncState(
+            trackId = track.id,
+            queueTitle = currentQueueTitle,
+            isPlaying = player.isPlaying,
+            mediaItemIndex = player.currentMediaItemIndex,
+            repeatMode = player.repeatMode,
+            shuffleEnabled = player.shuffleModeEnabled,
+            artworkPath = track.artworkPath,
+        )
     }
 
     private fun currentTrack(): Track? {
@@ -263,14 +312,39 @@ class PlaybackController(context: Context) {
         return currentQueue.firstOrNull { it.id == currentId }
     }
 
-    private fun playbackModeSummary(): String {
-        val repeatLabel = when (player.repeatMode) {
+    private fun currentArtwork(): Bitmap? {
+        val artworkPath = currentTrack()?.artworkPath ?: run {
+            cachedNotificationArtworkPath = null
+            cachedNotificationArtwork = null
+            return null
+        }
+        if (cachedNotificationArtworkPath != artworkPath) {
+            cachedNotificationArtworkPath = artworkPath
+            cachedNotificationArtwork = runCatching { BitmapFactory.decodeFile(artworkPath) }.getOrNull()
+        }
+        return cachedNotificationArtwork
+    }
+
+    private fun trackDetails(track: Track): String {
+        val parts = listOf(track.artist, track.album)
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+        return when {
+            parts.isNotEmpty() -> parts.joinToString(" • ")
+            currentQueueTitle.isNotBlank() -> currentQueueTitle
+            else -> "LuxMusic"
+        }
+    }
+
+    private fun notificationSubText(): String {
+        val mode = when (player.repeatMode) {
             Player.REPEAT_MODE_ONE -> "Повтор трека"
             Player.REPEAT_MODE_ALL -> "Повтор очереди"
             else -> "Без повтора"
         }
-        val shuffleLabel = if (player.shuffleModeEnabled) "Случайно" else "По порядку"
-        return "$repeatLabel • $shuffleLabel"
+        val shuffle = if (player.shuffleModeEnabled) "Перемешивание" else "По порядку"
+        return "$currentQueueTitle • $mode • $shuffle"
     }
 
     private fun contentIntent(): PendingIntent {
@@ -285,111 +359,18 @@ class PlaybackController(context: Context) {
         )
     }
 
-    private inner class NotificationDescriptionAdapter : PlayerNotificationManager.MediaDescriptionAdapter {
-        override fun createCurrentContentIntent(player: Player): PendingIntent = contentIntent()
-
-        override fun getCurrentContentTitle(player: Player): CharSequence {
-            return currentTrack()?.title ?: "LuxMusic"
-        }
-
-        override fun getCurrentContentText(player: Player): CharSequence {
-            val track = currentTrack()
-            return if (track != null) {
-                "${track.artist} • ${track.album}"
-            } else {
-                "Локальная музыкальная библиотека"
-            }
-        }
-
-        override fun getCurrentSubText(player: Player): CharSequence {
-            return playbackModeSummary()
-        }
-
-        override fun getCurrentLargeIcon(
-            player: Player,
-            callback: PlayerNotificationManager.BitmapCallback,
-        ): Bitmap? {
-            val artworkPath = currentTrack()?.artworkPath ?: run {
-                cachedNotificationArtworkPath = null
-                cachedNotificationArtwork = null
-                return null
-            }
-            if (cachedNotificationArtworkPath != artworkPath) {
-                cachedNotificationArtworkPath = artworkPath
-                cachedNotificationArtwork = runCatching { BitmapFactory.decodeFile(artworkPath) }.getOrNull()
-            }
-            return cachedNotificationArtwork
-        }
-    }
-
-    private inner class PlaybackNotificationListener : PlayerNotificationManager.NotificationListener {
-        override fun onNotificationPosted(
-            notificationId: Int,
-            notification: android.app.Notification,
-            ongoing: Boolean,
-        ) {
-            if (ongoing) {
-                if (!playbackForegroundServiceActive) {
-                    PlaybackNotificationService.startOrUpdate(appContext, notificationId, notification)
-                    playbackForegroundServiceActive = true
-                }
-            } else if (playbackForegroundServiceActive) {
-                PlaybackNotificationService.stop(appContext)
-                playbackForegroundServiceActive = false
-            }
-        }
-
-        override fun onNotificationCancelled(
-            notificationId: Int,
-            dismissedByUser: Boolean,
-        ) {
-            if (playbackForegroundServiceActive) {
-                PlaybackNotificationService.stop(appContext)
-                playbackForegroundServiceActive = false
-            }
-        }
-    }
-
-    private inner class RepeatActionReceiver : PlayerNotificationManager.CustomActionReceiver {
-        override fun createCustomActions(
-            context: Context,
-            instanceId: Int,
-        ): Map<String, NotificationCompat.Action> {
-            val intent = Intent(ACTION_REPEAT_MODE)
-                .setPackage(context.packageName)
-                .putExtra(PlayerNotificationManager.EXTRA_INSTANCE_ID, instanceId)
-
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                instanceId + 41,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
-            return mapOf(
-                ACTION_REPEAT_MODE to NotificationCompat.Action(
-                    android.R.drawable.ic_menu_rotate,
-                    context.getString(R.string.notification_repeat_mode),
-                    pendingIntent,
-                ),
-            )
-        }
-
-        override fun getCustomActions(player: Player): List<String> {
-            return if (player.mediaItemCount > 0) listOf(ACTION_REPEAT_MODE) else emptyList()
-        }
-
-        override fun onCustomAction(player: Player, action: String, intent: Intent) {
-            if (action == ACTION_REPEAT_MODE) {
-                cycleRepeatMode()
-            }
-        }
-    }
+    private data class NotificationSyncState(
+        val trackId: String,
+        val queueTitle: String,
+        val isPlaying: Boolean,
+        val mediaItemIndex: Int,
+        val repeatMode: Int,
+        val shuffleEnabled: Boolean,
+        val artworkPath: String?,
+    )
 
     private companion object {
-        const val PLAYBACK_NOTIFICATION_ID = 1207
-        const val PLAYBACK_CHANNEL_ID = "luxmusic_playback"
-        const val ACTION_REPEAT_MODE = "com.luxmusic.android.action.REPEAT_MODE"
         const val SEEK_INCREMENT_MS = 10_000L
+        const val DEFAULT_QUEUE_TITLE = "Библиотека"
     }
 }

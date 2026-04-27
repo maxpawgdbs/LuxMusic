@@ -4,20 +4,18 @@
 [![Release APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml)
 [![Nightly APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/nightly.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/nightly.yml)
 
-Android-прототип музыкального приложения с локальной офлайн-библиотекой, плейлистами, загрузкой по ссылке и интерфейсом на Material Design 3.
+Android music player prototype with an offline-first local library, playlists, link downloads, and Media3 playback.
 
-## Что уже сделано
+## Current features
 
-- импорт локальных аудиофайлов через системный picker
-- копирование музыки во внутреннее хранилище приложения, чтобы треки были доступны офлайн
-- извлечение метаданных, обложек и текста из файла или sidecar-файлов (`.lrc`, `.txt`, `.vtt`) по возможности
-- плейлисты
-- режимы `shuffle`, `repeat all`, `repeat one`
-- UI на Jetpack Compose + Material 3
-- скачивание по ссылке через `yt-dlp` Android-wrapper с последующим импортом в библиотеку
-- media notification и управление воспроизведением
+- Offline local library stored inside the app sandbox.
+- Playlist management.
+- Shuffle, repeat-all, and repeat-one playback modes.
+- Link downloads through `yt-dlp` for YouTube, TikTok, and SoundCloud only.
+- Foreground media playback notification with progress bar and transport controls.
+- Jetpack Compose UI on Material 3.
 
-## Стек
+## Stack
 
 - Kotlin
 - Jetpack Compose
@@ -26,33 +24,27 @@ Android-прототип музыкального приложения с лок
 
 ## CI/CD
 
-- `Android CI` запускается на каждый push в `main`, на каждый PR и вручную
-- `Release APK` запускается по тегам `v*` и вручную
-- `Nightly APK` запускается по расписанию и вручную
-- CI больше не загружает build artifacts в GitHub Actions storage
-- Release workflow публикует один universal APK в GitHub Releases
+- `Android CI` runs on every push to `main`, on every pull request, and manually.
+- `Release APK` runs on every push to `main`, on tags matching `v*`, and manually.
+- `Nightly APK` runs on schedule and manually.
+- GitHub Actions no longer uploads build artifacts into Actions storage.
+- GitHub Releases publish one universal `app-release.apk`.
 
-## Signed Release
+## Stable APK updates
 
-Чтобы GitHub Actions собирал подписанный release APK, добавьте в Secrets репозитория:
+- GitHub Releases always publish a signed `app-release.apk` built with the bundled keystore at `signing/luxmusic-dev.jks`.
+- Release workflow auto-increments `versionCode`, so every new `edge` build can be installed over the previous one without deleting the app and its local database.
+- If you replace `signing/luxmusic-dev.jks` with another certificate, Android will require one reinstall. After that, updates will continue only between builds signed with the new certificate.
 
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
+## Important notes
 
-`ANDROID_KEYSTORE_BASE64` должен содержать base64-строку вашего `.jks` или `.keystore` файла.  
-Если secrets не заданы, workflow соберёт unsigned release локально, но в GitHub Releases опубликует installable `app-debug.apk`, а не unsigned файл.
+- The current downloader stack depends on a GPL component. Replace it before shipping a proprietary distribution.
+- Download only content you have the right to store offline.
 
-## Важные замечания
+## Local setup
 
-- Загрузчик построен на GPL-зависимости. Для закрытого коммерческого релиза этот слой лучше заменить своим backend/provider-решением.
-- Используйте скачивание только для контента, который вы имеете право сохранять.
-
-## Как открыть
-
-1. Установить Android Studio с JDK 17+.
-2. Установить Android SDK Platform 36.
-3. Открыть папку проекта в Android Studio.
-4. Дождаться синхронизации Gradle wrapper и зависимостей.
-5. Запустить `app` на устройстве или эмуляторе с Android 8.0+.
+1. Install Android Studio with JDK 17+.
+2. Install Android SDK Platform 36.
+3. Open the project in Android Studio.
+4. Let Gradle sync finish.
+5. Run the `app` target on a device or emulator with Android 8.0+.

@@ -3,16 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val releaseStoreFilePath = System.getenv("ANDROID_KEYSTORE_PATH")
-val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
-val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-val hasReleaseSigning = listOf(
-    releaseStoreFilePath,
-    releaseStorePassword,
-    releaseKeyAlias,
-    releaseKeyPassword,
-).all { !it.isNullOrBlank() }
+val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
+val bundledSigningStorePassword = "luxmusic"
+val bundledSigningKeyAlias = "luxmusic-dev"
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 4
+val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: "0.3.2"
 
 android {
     namespace = "com.luxmusic.android"
@@ -22,29 +17,28 @@ android {
         applicationId = "com.luxmusic.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.3.2"
+        versionCode = appVersionCode
+        versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
     }
 
     signingConfigs {
-        create("release") {
-            if (hasReleaseSigning) {
-                storeFile = file(releaseStoreFilePath!!)
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
-            }
+        create("luxmusic") {
+            storeFile = bundledSigningStoreFile
+            storePassword = bundledSigningStorePassword
+            keyAlias = bundledSigningKeyAlias
+            keyPassword = bundledSigningStorePassword
         }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("luxmusic")
+        }
         release {
-            if (hasReleaseSigning) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("luxmusic")
             // Keep release behavior aligned with debug until explicit keep rules are in place.
             isMinifyEnabled = false
             isShrinkResources = false

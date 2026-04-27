@@ -3,4 +3,10 @@
     <string name="playback_notification_channel_name">Воспроизведение LuxMusic</string>
     <string name="playback_notification_channel_description">Управление текущим треком и очередью воспроизведения</string>
     <string name="notification_repeat_mode">Режим повтора</string>
+    <string name="notification_play">Воспроизвести</string>
+    <string name="notification_pause">Пауза</string>
+    <string name="notification_previous">Предыдущий трек</string>
+    <string name="notification_next">Следующий трек</string>
+    <string name="notification_seek_back">Назад на 10 секунд</string>
+    <string name="notification_seek_forward">Вперёд на 10 секунд</string>
 </resources>

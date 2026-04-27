@@ -41,23 +41,14 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x gradlew
 
-      - name: Prepare signing config
+      - name: Set app version
         shell: bash
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/luxmusic-release.jks"
-            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/luxmusic-release.jks" >> "$GITHUB_ENV"
-            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
-            echo "SIGNED_RELEASE=true" >> "$GITHUB_ENV"
+          echo "LUXMUSIC_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "LUXMUSIC_VERSION_NAME=0.3.2-edge.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           else
-            echo "SIGNED_RELEASE=false" >> "$GITHUB_ENV"
+            echo "LUXMUSIC_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           fi
 
       - name: Verify and build APKs
@@ -68,11 +59,7 @@ jobs:
         run: |
           {
             echo 'RELEASE_FILES<<EOF'
-            if [[ "${SIGNED_RELEASE}" == "true" ]]; then
-              echo 'app/build/outputs/apk/release/app-release.apk'
-            else
-              echo 'app/build/outputs/apk/debug/app-debug.apk'
-            fi
+            echo 'app/build/outputs/apk/release/app-release.apk'
             echo 'EOF'
           } >> "$GITHUB_ENV"
 
@@ -97,6 +84,6 @@ jobs:
           files: ${{ env.RELEASE_FILES }}
           body: |
             APK assets:
-            - `app-release.apk`: universal signed release build when secrets are configured
-            - `app-debug.apk`: universal fallback build when signing secrets are unavailable
+            - `app-release.apk`: universal signed release build with bundled update-safe keystore
+            - `versionCode` auto-increments on every workflow run, so edge releases install over previous ones
             - `edge` prerelease is updated automatically on every push to `main`
