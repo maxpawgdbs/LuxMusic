@@ -68,6 +68,7 @@ class PlaybackController(context: Context) {
 
     private val mediaSession = MediaSession.Builder(appContext, player)
         .setId("luxmusic_media_session")
+        .setPeriodicPositionUpdateEnabled(true)
         .build()
 
     val state: StateFlow<PlaybackState> = mutableState.asStateFlow()

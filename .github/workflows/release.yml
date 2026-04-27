@@ -58,9 +58,11 @@ jobs:
       - name: Prepare GitHub release assets
         shell: bash
         run: |
+          VERSIONED_APK="LuxMusic-${LUXMUSIC_VERSION_NAME}-arm64-v8a.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "$RUNNER_TEMP/$VERSIONED_APK"
           {
             echo 'RELEASE_FILES<<EOF'
-            echo 'app/build/outputs/apk/release/app-arm64-v8a-release.apk'
+            echo "$RUNNER_TEMP/$VERSIONED_APK"
             echo 'EOF'
           } >> "$GITHUB_ENV"
 
@@ -87,6 +89,6 @@ jobs:
           files: ${{ env.RELEASE_FILES }}
           body: |
             APK assets:
-            - `app-arm64-v8a-release.apk`: signed arm64 release build with bundled update-safe keystore
+            - `LuxMusic-<version>-arm64-v8a.apk`: signed arm64 release build with bundled update-safe keystore
             - `versionCode` auto-increments on every workflow run, so edge releases install over previous ones
             - `edge` rolling release is updated automatically on every push to `main`
