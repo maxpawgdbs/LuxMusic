@@ -28,12 +28,13 @@ Android music player prototype with an offline-first local library, playlists, l
 - `Release APK` runs on every push to `main`, on tags matching `v*`, and manually.
 - `Nightly APK` runs on schedule and manually.
 - GitHub Actions no longer uploads build artifacts into Actions storage.
-- GitHub Releases publish one universal `app-release.apk`.
+- GitHub Releases publish one signed `arm64-v8a` release APK for real devices.
 
 ## Stable APK updates
 
-- GitHub Releases always publish a signed `app-release.apk` built with the bundled keystore at `signing/luxmusic-dev.jks`.
+- GitHub Releases always publish a signed `app-arm64-v8a-release.apk` built with the bundled keystore at `signing/luxmusic-dev.jks`.
 - Release workflow auto-increments `versionCode`, so every new `edge` build can be installed over the previous one without deleting the app and its local database.
+- The base app version is tracked through `luxmusic.baseVersion` in `gradle.properties`.
 - If you replace `signing/luxmusic-dev.jks` with another certificate, Android will require one reinstall. After that, updates will continue only between builds signed with the new certificate.
 
 ## Important notes

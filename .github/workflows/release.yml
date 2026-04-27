@@ -44,9 +44,10 @@ jobs:
       - name: Set app version
         shell: bash
         run: |
+          BASE_VERSION="$(grep '^luxmusic.baseVersion=' gradle.properties | cut -d= -f2)"
           echo "LUXMUSIC_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "LUXMUSIC_VERSION_NAME=0.3.2-edge.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+            echo "LUXMUSIC_VERSION_NAME=${BASE_VERSION}-edge.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           else
             echo "LUXMUSIC_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           fi
@@ -59,7 +60,7 @@ jobs:
         run: |
           {
             echo 'RELEASE_FILES<<EOF'
-            echo 'app/build/outputs/apk/release/app-release.apk'
+            echo 'app/build/outputs/apk/release/app-arm64-v8a-release.apk'
             echo 'EOF'
           } >> "$GITHUB_ENV"
 
@@ -86,6 +87,6 @@ jobs:
           files: ${{ env.RELEASE_FILES }}
           body: |
             APK assets:
-            - `app-release.apk`: universal signed release build with bundled update-safe keystore
+            - `app-arm64-v8a-release.apk`: signed arm64 release build with bundled update-safe keystore
             - `versionCode` auto-increments on every workflow run, so edge releases install over previous ones
             - `edge` rolling release is updated automatically on every push to `main`
