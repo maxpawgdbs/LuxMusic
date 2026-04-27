@@ -68,6 +68,15 @@ class PlaybackNotificationService : MediaSessionService() {
         return result
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        markAppClosed()
+        val snapshot = playbackController().notificationSnapshot()
+        if (snapshot == null || !snapshot.isPlaying) {
+            dismissNotificationAndStop()
+        }
+    }
+
     override fun onUpdateNotification(
         session: MediaSession,
         startInForegroundRequired: Boolean,
@@ -75,11 +84,12 @@ class PlaybackNotificationService : MediaSessionService() {
         val controller = playbackController()
         val snapshot = controller.notificationSnapshot()
         if (snapshot == null) {
-            notificationManager.cancel(NOTIFICATION_ID)
-            stopForegroundCompat(removeNotification = true)
-            if (!isPlaybackOngoing()) {
-                stopSelf()
-            }
+            dismissNotificationAndStop()
+            return
+        }
+
+        if (isAppClosed() && !snapshot.isPlaying) {
+            dismissNotificationAndStop()
             return
         }
 
@@ -94,8 +104,7 @@ class PlaybackNotificationService : MediaSessionService() {
     override fun onDestroy() {
         refreshJob?.cancel()
         removeSession(playbackController().notificationMediaSession())
-        notificationManager.cancel(NOTIFICATION_ID)
-        stopForegroundCompat(removeNotification = true)
+        dismissNotificationAndStop()
         scope.cancel()
         super.onDestroy()
     }
@@ -316,6 +325,14 @@ class PlaybackNotificationService : MediaSessionService() {
         return (application as LuxMusicApp).playbackController
     }
 
+    private fun dismissNotificationAndStop() {
+        notificationManager.cancel(NOTIFICATION_ID)
+        stopForegroundCompat(removeNotification = true)
+        if (!isPlaybackOngoing()) {
+            stopSelf()
+        }
+    }
+
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
@@ -379,6 +396,8 @@ class PlaybackNotificationService : MediaSessionService() {
         private const val REQUEST_NEXT = 6
         private const val ACTIVE_REFRESH_MS = 1_000L
         private const val IDLE_REFRESH_MS = 2_000L
+        @Volatile
+        private var appClosed = false
 
         private fun formatTime(valueMs: Long): String {
             val totalSeconds = (valueMs.coerceAtLeast(0L) / 1_000L).toInt()
@@ -402,5 +421,15 @@ class PlaybackNotificationService : MediaSessionService() {
         fun stop(context: Context) {
             context.stopService(Intent(context, PlaybackNotificationService::class.java))
         }
+
+        fun markAppVisible() {
+            appClosed = false
+        }
+
+        private fun markAppClosed() {
+            appClosed = true
+        }
+
+        private fun isAppClosed(): Boolean = appClosed
     }
 }

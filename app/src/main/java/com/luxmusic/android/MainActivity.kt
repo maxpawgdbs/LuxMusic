@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luxmusic.android.data.DownloadService
+import com.luxmusic.android.playback.PlaybackNotificationService
 import com.luxmusic.android.ui.LuxMusicScreen
 import com.luxmusic.android.ui.theme.LuxMusicTheme
 
@@ -28,6 +29,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PlaybackNotificationService.markAppVisible()
         enableEdgeToEdge()
 
         setContent {

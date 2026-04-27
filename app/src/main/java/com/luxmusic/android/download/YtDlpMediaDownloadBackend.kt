@@ -2,6 +2,7 @@ package com.luxmusic.android.download
 
 import android.content.Context
 import com.luxmusic.android.data.DownloadService
+import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.mapper.VideoInfo
@@ -11,8 +12,10 @@ internal class YtDlpMediaDownloadBackend(
     private val context: Context,
 ) : MediaDownloadBackend {
     private val youtubeDl by lazy { YoutubeDL.getInstance() }
+    private val ffmpeg by lazy { FFmpeg.getInstance() }
 
     fun initialize() {
+        ffmpeg.init(context)
         youtubeDl.init(context)
     }
 
@@ -75,11 +78,9 @@ internal class YtDlpMediaDownloadBackend(
         service: DownloadService,
         session: DownloadSession?,
     ): YoutubeDLRequest {
+        val profile = requestProfileFor(service)
         val request = YoutubeDLRequest(url)
-            .addOption(
-                "-f",
-                "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[acodec!=none]/best[acodec!=none]/bestaudio/best",
-            )
+            .addOption("-f", profile.formatSelector)
             .addOption("--no-playlist")
             .addOption("--no-warnings")
             .addOption("--newline")
@@ -96,6 +97,13 @@ internal class YtDlpMediaDownloadBackend(
             .addOption("--write-auto-subs")
             .addOption("--sub-langs", "all")
             .addOption("-o", jobDir.absolutePath + "/%(title).140B.%(ext)s")
+
+        if (profile.extractAudio) {
+            request
+                .addOption("--extract-audio")
+                .addOption("--audio-format", profile.targetAudioExtension ?: "mp3")
+                .addOption("--audio-quality", "0")
+        }
 
         return applySessionOptions(request, jobDir, service, session)
     }
@@ -179,4 +187,28 @@ internal class YtDlpMediaDownloadBackend(
     }
 
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
+
+    companion object {
+        internal fun requestProfileFor(service: DownloadService): YtDlpRequestProfile {
+            return when (service) {
+                DownloadService.YOUTUBE -> YtDlpRequestProfile(
+                    formatSelector = "bestvideo*+bestaudio/best",
+                    extractAudio = true,
+                    targetAudioExtension = "mp3",
+                )
+
+                else -> YtDlpRequestProfile(
+                    formatSelector = "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[acodec!=none]/best[acodec!=none]/bestaudio/best",
+                    extractAudio = false,
+                    targetAudioExtension = null,
+                )
+            }
+        }
+    }
 }
+
+internal data class YtDlpRequestProfile(
+    val formatSelector: String,
+    val extractAudio: Boolean,
+    val targetAudioExtension: String?,
+)

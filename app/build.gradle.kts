@@ -109,6 +109,7 @@ dependencies {
 
     // GPL-licensed downloader dependency. Keep it for prototyping, swap it out if you need a proprietary release.
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid")
 
     debugImplementation("androidx.compose.ui:ui-tooling:$composeUi")
     debugImplementation("androidx.compose.ui:ui-test-manifest:$composeUi")
@@ -146,6 +147,7 @@ tasks.register<JavaExec>("offlineUnitTest") {
         "com.luxmusic.android.download.DownloadPlannerTest",
         "com.luxmusic.android.download.DownloadMetadataResolverTest",
         "com.luxmusic.android.download.LinkDownloadExecutorTest",
+        "com.luxmusic.android.download.YtDlpMediaDownloadBackendTest",
     )
 }
 
