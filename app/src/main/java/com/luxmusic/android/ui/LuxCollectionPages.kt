@@ -55,16 +55,10 @@ private val downloadServices = listOf(
     "YouTube",
     "SoundCloud",
     "TikTok",
-    "VK Музыка",
-    "Яндекс Музыка",
-    "Apple Music",
-    "Spotify",
 )
 
 private val accountServices = listOf(
     DownloadService.YOUTUBE,
-    DownloadService.YANDEX_MUSIC,
-    DownloadService.VK_MUSIC,
 )
 
 @Composable
@@ -489,7 +483,7 @@ internal fun LuxDownloadPage(
                 ) {
                     Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "YouTube, TikTok и SoundCloud качаются напрямую через extractor. Yandex Music и VK сначала пробуются напрямую, а при неудаче переходят на поиск совпадения по метаданным. Apple Music и Spotify работают через извлечение метаданных и подбор офлайн-копии.",
+                        "LuxMusic сейчас поддерживает прямое скачивание только из YouTube, TikTok и SoundCloud. Для YouTube можно подключить сессию прямо в приложении, чтобы снизить риск 429 и лимитов.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -589,8 +583,6 @@ private fun DownloadAccountCard(
                     Text(
                         when {
                             accountState.isConnected -> "Сессия подключена"
-                            service == DownloadService.YANDEX_MUSIC || service == DownloadService.VK_MUSIC ->
-                                "Сессия повышает шанс прямой загрузки"
                             service.accountRecommended -> "Аккаунт помогает обойти 429 и лимиты"
                             else -> "Аккаунт не обязателен"
                         },

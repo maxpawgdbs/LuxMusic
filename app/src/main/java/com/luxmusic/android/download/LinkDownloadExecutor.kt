@@ -266,7 +266,11 @@ internal class LinkDownloadExecutor(
                 "Не удалось извлечь метаданные из ссылки ${service.title}. Без названия и исполнителя LuxMusic не сможет подобрать офлайн-копию."
             }
 
-            else -> "Не удалось подготовить план скачивания для ${service.title}."
+            service == DownloadService.UNKNOWN -> {
+                "Скачивание поддерживается только из YouTube, TikTok и SoundCloud."
+            }
+
+            else -> "Прямая загрузка из ${service.title} сейчас недоступна. LuxMusic поддерживает только YouTube, TikTok и SoundCloud."
         }
     }
 

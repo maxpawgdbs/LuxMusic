@@ -146,19 +146,9 @@ class LinkDownloader(
                 }
             }
 
-            service == DownloadService.SPOTIFY || service == DownloadService.APPLE_MUSIC -> {
+            service == DownloadService.UNKNOWN -> {
                 rawMessage.ifBlank {
-                    "Для ${service.title} не получилось извлечь метаданные, поэтому LuxMusic не смог подобрать офлайн-копию."
-                }
-            }
-
-            service == DownloadService.YANDEX_MUSIC || service == DownloadService.VK_MUSIC -> {
-                rawMessage.ifBlank {
-                    if (hasSession) {
-                        "Прямая загрузка из ${service.title} не удалась, и fallback-поиск не нашёл совпадение."
-                    } else {
-                        "Прямая загрузка из ${service.title} без сессии не удалась. Подключите аккаунт или попробуйте другую ссылку."
-                    }
+                    "Скачивание поддерживается только из YouTube, TikTok и SoundCloud."
                 }
             }
 
@@ -169,17 +159,14 @@ class LinkDownloader(
 
     private fun serviceFailureHint(service: DownloadService): String {
         return when (service) {
-            DownloadService.SPOTIFY ->
-                "Spotify не отдаёт исходный аудиофайл через официальный Web API, поэтому LuxMusic работает только через метаданные и поиск совпадения."
-
-            DownloadService.APPLE_MUSIC ->
-                "Apple Music не отдаёт исходный аудиофайл через открытые API, поэтому LuxMusic работает через метаданные и поиск совпадения."
-
-            DownloadService.YANDEX_MUSIC, DownloadService.VK_MUSIC ->
-                "Для этого сервиса загрузка зависит от актуальности extractor и от подключенной пользовательской сессии."
-
             DownloadService.YOUTUBE ->
                 "Не удалось скачать трек с YouTube. При 429 подключите аккаунт и повторите попытку."
+
+            DownloadService.TIKTOK ->
+                "Не удалось скачать аудио из TikTok."
+
+            DownloadService.SOUNDCLOUD ->
+                "Не удалось скачать трек из SoundCloud."
 
             else -> "Не удалось скачать музыку по ссылке."
         }

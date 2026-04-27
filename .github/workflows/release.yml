@@ -68,9 +68,10 @@ jobs:
         run: |
           {
             echo 'RELEASE_FILES<<EOF'
-            echo 'app/build/outputs/apk/debug/app-arm64-v8a-debug.apk'
             if [[ "${SIGNED_RELEASE}" == "true" ]]; then
-              find app/build/outputs/apk/release -maxdepth 1 -type f -name '*-release.apk' | sort
+              echo 'app/build/outputs/apk/release/app-release.apk'
+            else
+              echo 'app/build/outputs/apk/debug/app-debug.apk'
             fi
             echo 'EOF'
           } >> "$GITHUB_ENV"
@@ -82,14 +83,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -fa edge -m "Edge build" "$GITHUB_SHA"
           git push origin refs/tags/edge --force
-
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: luxmusic-release-apks
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
 
       - name: Publish GitHub release
         id: publish_release
@@ -104,7 +97,6 @@ jobs:
           files: ${{ env.RELEASE_FILES }}
           body: |
             APK assets:
-            - `app-arm64-v8a-debug.apk`: installable debug build
-            - `app-arm64-v8a-release.apk`: signed release build when secrets are configured
-            - unsigned release APKs are no longer published to GitHub Releases
+            - `app-release.apk`: universal signed release build when secrets are configured
+            - `app-debug.apk`: universal fallback build when signing secrets are unavailable
             - `edge` prerelease is updated automatically on every push to `main`

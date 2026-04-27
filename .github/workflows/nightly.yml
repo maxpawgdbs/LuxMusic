@@ -40,18 +40,3 @@ jobs:
 
       - name: Run nightly verification
         run: ./gradlew --no-daemon test assembleDebug lintVitalRelease
-
-      - name: Upload nightly APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: luxmusic-nightly-apks
-          path: app/build/outputs/apk/debug/*.apk
-
-      - name: Upload nightly reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: luxmusic-nightly-reports
-          path: |
-            app/build/reports/**
-            app/build/intermediates/lint_vital_intermediate_text_report/**

@@ -57,30 +57,16 @@ internal class DownloadPlanner {
             DownloadService.YOUTUBE,
             DownloadService.TIKTOK,
             DownloadService.SOUNDCLOUD,
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
-            DownloadService.UNKNOWN,
         )
 
-        val YOUTUBE_FALLBACK_SERVICES = setOf(
-            DownloadService.APPLE_MUSIC,
-            DownloadService.SPOTIFY,
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
-            DownloadService.UNKNOWN,
-        )
+        val YOUTUBE_FALLBACK_SERVICES = emptySet<DownloadService>()
 
-        val METADATA_ONLY_SERVICES = setOf(
-            DownloadService.APPLE_MUSIC,
-            DownloadService.SPOTIFY,
-        )
+        val METADATA_ONLY_SERVICES = emptySet<DownloadService>()
 
         val NIGHTLY_RETRY_SERVICES = setOf(
             DownloadService.YOUTUBE,
             DownloadService.TIKTOK,
             DownloadService.SOUNDCLOUD,
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
         )
     }
 }

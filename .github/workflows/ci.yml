@@ -42,19 +42,3 @@ jobs:
 
       - name: Run verification
         run: ./gradlew --no-daemon test assembleDebug lintVitalRelease
-
-      - name: Upload debug APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: luxmusic-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-
-      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: luxmusic-reports
-          path: |
-            app/build/reports/**
-            app/build/intermediates/lint_vital_intermediate_text_report/**

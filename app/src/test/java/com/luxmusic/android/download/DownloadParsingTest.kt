@@ -13,8 +13,9 @@ class DownloadParsingTest {
     fun `detectService recognizes supported platforms`() {
         assertEquals(DownloadService.YOUTUBE, DownloadParsing.detectService("https://youtu.be/demo"))
         assertEquals(DownloadService.TIKTOK, DownloadParsing.detectService("https://vt.tiktok.com/demo"))
-        assertEquals(DownloadService.YANDEX_MUSIC, DownloadParsing.detectService("https://music.yandex.ru/album/1/track/2"))
-        assertEquals(DownloadService.SPOTIFY, DownloadParsing.detectService("https://open.spotify.com/track/abc"))
+        assertEquals(DownloadService.SOUNDCLOUD, DownloadParsing.detectService("https://soundcloud.com/artist/track"))
+        assertEquals(DownloadService.UNKNOWN, DownloadParsing.detectService("https://music.yandex.ru/album/1/track/2"))
+        assertEquals(DownloadService.UNKNOWN, DownloadParsing.detectService("https://open.spotify.com/track/abc"))
         assertEquals(DownloadService.YOUTUBE, DownloadParsing.detectService("ytsearch1:artist song"))
         assertEquals(DownloadService.UNKNOWN, DownloadParsing.detectService("https://example.com/track"))
     }

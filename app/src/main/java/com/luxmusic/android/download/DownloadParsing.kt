@@ -7,12 +7,8 @@ internal object DownloadParsing {
     fun detectService(url: String): DownloadService {
         val normalized = url.trim().lowercase()
         return when {
-            "music.yandex" in normalized || "yandex.ru" in normalized -> DownloadService.YANDEX_MUSIC
-            "vk.com" in normalized || "vkvideo.ru" in normalized || "vk.ru" in normalized -> DownloadService.VK_MUSIC
             "tiktok.com" in normalized || "vm.tiktok.com" in normalized || "vt.tiktok.com" in normalized ->
                 DownloadService.TIKTOK
-            "music.apple.com" in normalized || "itunes.apple.com" in normalized -> DownloadService.APPLE_MUSIC
-            "spotify.com" in normalized -> DownloadService.SPOTIFY
             "soundcloud.com" in normalized || "on.soundcloud.com" in normalized -> DownloadService.SOUNDCLOUD
             "youtube.com" in normalized || "youtu.be" in normalized || "music.youtube.com" in normalized ||
                 normalized.startsWith("ytsearch") -> DownloadService.YOUTUBE

@@ -9,61 +9,35 @@ import java.io.File
 
 class DownloadMetadataResolverTest {
     @Test
-    fun `spotify metadata comes from oembed`() {
+    fun `youtube metadata falls back to oembed when extractor info is missing`() {
         val resolver = CompositeDownloadMetadataResolver(
             backend = FakeMetadataBackend(),
             httpClient = FakeMetadataHttpClient(
                 mapOf(
-                    "https://open.spotify.com/oembed?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2Fabc" to
+                    "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fyoutu.be%2Fdemo" to
                         """{"title":"Track Name","author_name":"Artist Name"}""",
                 ),
             ),
         )
 
         val metadata = resolver.resolve(
-            url = "https://open.spotify.com/track/abc",
-            service = DownloadService.SPOTIFY,
+            url = "https://youtu.be/demo",
+            service = DownloadService.YOUTUBE,
             session = null,
         )
 
         assertNotNull(metadata)
         assertEquals("Track Name", metadata?.title)
         assertEquals("Artist Name", metadata?.artist)
-        assertEquals("Artist Name Track Name", metadata?.queryHint)
     }
 
     @Test
-    fun `apple music metadata comes from lookup api`() {
+    fun `soundcloud metadata can fall back to html`() {
         val resolver = CompositeDownloadMetadataResolver(
             backend = FakeMetadataBackend(),
             httpClient = FakeMetadataHttpClient(
                 mapOf(
-                    "https://itunes.apple.com/lookup?id=1712345680&entity=song&country=us" to
-                        """{"results":[{"kind":"song","trackName":"Track Name","artistName":"Artist Name","collectionName":"Album Name","trackTimeMillis":215000}]}""",
-                ),
-            ),
-        )
-
-        val metadata = resolver.resolve(
-            url = "https://music.apple.com/us/album/song-name/1712345678?i=1712345680",
-            service = DownloadService.APPLE_MUSIC,
-            session = null,
-        )
-
-        assertNotNull(metadata)
-        assertEquals("Track Name", metadata?.title)
-        assertEquals("Artist Name", metadata?.artist)
-        assertEquals("Album Name", metadata?.album)
-        assertEquals(215_000L, metadata?.durationMs)
-    }
-
-    @Test
-    fun `html fallback is used when service has no oembed`() {
-        val resolver = CompositeDownloadMetadataResolver(
-            backend = FakeMetadataBackend(),
-            httpClient = FakeMetadataHttpClient(
-                mapOf(
-                    "https://music.yandex.ru/album/1/track/2" to """
+                    "https://soundcloud.com/artist/track" to """
                         <html>
                         <head>
                         <meta property="og:title" content="Track Name" />
@@ -76,8 +50,8 @@ class DownloadMetadataResolverTest {
         )
 
         val metadata = resolver.resolve(
-            url = "https://music.yandex.ru/album/1/track/2",
-            service = DownloadService.YANDEX_MUSIC,
+            url = "https://soundcloud.com/artist/track",
+            service = DownloadService.SOUNDCLOUD,
             session = null,
         )
 
@@ -87,14 +61,14 @@ class DownloadMetadataResolverTest {
     }
 
     @Test
-    fun `resolver returns null when no source responds`() {
+    fun `unsupported services are ignored`() {
         val resolver = CompositeDownloadMetadataResolver(
             backend = FakeMetadataBackend(),
             httpClient = FakeMetadataHttpClient(emptyMap()),
         )
 
         val metadata = resolver.resolve(
-            url = "https://example.com/track",
+            url = "https://open.spotify.com/track/abc",
             service = DownloadService.UNKNOWN,
             session = null,
         )

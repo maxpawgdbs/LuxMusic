@@ -29,8 +29,8 @@ Android-прототип музыкального приложения с лок
 - `Android CI` запускается на каждый push в `main`, на каждый PR и вручную
 - `Release APK` запускается по тегам `v*` и вручную
 - `Nightly APK` запускается по расписанию и вручную
-- CI публикует debug APK и build reports как artifacts
-- Release workflow публикует GitHub Release и APK-артефакты
+- CI больше не загружает build artifacts в GitHub Actions storage
+- Release workflow публикует один universal APK в GitHub Releases
 
 ## Signed Release
 
@@ -42,7 +42,7 @@ Android-прототип музыкального приложения с лок
 - `ANDROID_KEY_PASSWORD`
 
 `ANDROID_KEYSTORE_BASE64` должен содержать base64-строку вашего `.jks` или `.keystore` файла.  
-Если secrets не заданы, workflow всё равно соберёт unsigned release APK.
+Если secrets не заданы, workflow соберёт unsigned release локально, но в GitHub Releases опубликует installable `app-debug.apk`, а не unsigned файл.
 
 ## Важные замечания
 

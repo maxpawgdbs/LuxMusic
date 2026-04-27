@@ -37,7 +37,10 @@ import java.io.File
 class PlaybackController(context: Context) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val player = ExoPlayer.Builder(appContext).build().apply {
+    private val player = ExoPlayer.Builder(appContext)
+        .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
+        .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
+        .build().apply {
         setAudioAttributes(
             AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -51,6 +54,9 @@ class PlaybackController(context: Context) {
 
     private var currentQueue: List<Track> = emptyList()
     private var currentQueueTitle: String = "Библиотека"
+    private var cachedNotificationArtworkPath: String? = null
+    private var cachedNotificationArtwork: Bitmap? = null
+    private var playbackForegroundServiceActive = false
 
     private val mediaSession = MediaSession.Builder(appContext, player)
         .setId("luxmusic_media_session")
@@ -64,15 +70,17 @@ class PlaybackController(context: Context) {
         .setChannelNameResourceId(R.string.playback_notification_channel_name)
         .setChannelDescriptionResourceId(R.string.playback_notification_channel_description)
         .setMediaDescriptionAdapter(NotificationDescriptionAdapter())
+        .setNotificationListener(PlaybackNotificationListener())
         .setCustomActionReceiver(RepeatActionReceiver())
         .setSmallIconResourceId(android.R.drawable.ic_media_play)
         .build().apply {
             setColorized(true)
             setColor(0xFF215EEA.toInt())
-            setPriority(NotificationCompat.PRIORITY_LOW)
+            setPriority(NotificationCompat.PRIORITY_DEFAULT)
             setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            setUseFastForwardAction(false)
-            setUseRewindAction(false)
+            setUseChronometer(true)
+            setUseFastForwardAction(true)
+            setUseRewindAction(true)
             setUseStopAction(false)
             setUsePlayPauseActions(true)
             setUseNextActionInCompactView(true)
@@ -226,6 +234,8 @@ class PlaybackController(context: Context) {
     fun release() {
         scope.cancel()
         notificationManager.setPlayer(null)
+        PlaybackNotificationService.stop(appContext)
+        playbackForegroundServiceActive = false
         mediaSession.release()
         player.release()
     }
@@ -299,8 +309,44 @@ class PlaybackController(context: Context) {
             player: Player,
             callback: PlayerNotificationManager.BitmapCallback,
         ): Bitmap? {
-            val artworkPath = currentTrack()?.artworkPath ?: return null
-            return runCatching { BitmapFactory.decodeFile(artworkPath) }.getOrNull()
+            val artworkPath = currentTrack()?.artworkPath ?: run {
+                cachedNotificationArtworkPath = null
+                cachedNotificationArtwork = null
+                return null
+            }
+            if (cachedNotificationArtworkPath != artworkPath) {
+                cachedNotificationArtworkPath = artworkPath
+                cachedNotificationArtwork = runCatching { BitmapFactory.decodeFile(artworkPath) }.getOrNull()
+            }
+            return cachedNotificationArtwork
+        }
+    }
+
+    private inner class PlaybackNotificationListener : PlayerNotificationManager.NotificationListener {
+        override fun onNotificationPosted(
+            notificationId: Int,
+            notification: android.app.Notification,
+            ongoing: Boolean,
+        ) {
+            if (ongoing) {
+                if (!playbackForegroundServiceActive) {
+                    PlaybackNotificationService.startOrUpdate(appContext, notificationId, notification)
+                    playbackForegroundServiceActive = true
+                }
+            } else if (playbackForegroundServiceActive) {
+                PlaybackNotificationService.stop(appContext)
+                playbackForegroundServiceActive = false
+            }
+        }
+
+        override fun onNotificationCancelled(
+            notificationId: Int,
+            dismissedByUser: Boolean,
+        ) {
+            if (playbackForegroundServiceActive) {
+                PlaybackNotificationService.stop(appContext)
+                playbackForegroundServiceActive = false
+            }
         }
     }
 
@@ -344,5 +390,6 @@ class PlaybackController(context: Context) {
         const val PLAYBACK_NOTIFICATION_ID = 1207
         const val PLAYBACK_CHANNEL_ID = "luxmusic_playback"
         const val ACTION_REPEAT_MODE = "com.luxmusic.android.action.REPEAT_MODE"
+        const val SEEK_INCREMENT_MS = 10_000L
     }
 }

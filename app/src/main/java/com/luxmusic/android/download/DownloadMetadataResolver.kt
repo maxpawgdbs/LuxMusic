@@ -13,64 +13,13 @@ internal class CompositeDownloadMetadataResolver(
         service: DownloadService,
         session: DownloadSession?,
     ): DownloadSourceMetadata? {
-        return when (service) {
-            DownloadService.APPLE_MUSIC -> {
-                resolveAppleMusic(url)
-                    ?: resolveHtml(url, service, session)
-            }
-
-            DownloadService.SPOTIFY -> {
-                resolveOEmbed(url, service)
-                    ?: resolveHtml(url, service, session)
-            }
-
-            DownloadService.YOUTUBE,
-            DownloadService.TIKTOK,
-            DownloadService.SOUNDCLOUD,
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
-            DownloadService.UNKNOWN,
-            -> {
-                backend.fetchInfo(url, service, session)
-                    ?: resolveOEmbed(url, service)
-                    ?: resolveHtml(url, service, session)
-            }
-        }
-    }
-
-    private fun resolveAppleMusic(url: String): DownloadSourceMetadata? {
-        val lookupKey = DownloadParsing.appleMusicLookupKey(url) ?: return null
-        val endpoint = buildString {
-            append("https://itunes.apple.com/lookup?id=")
-            append(lookupKey.lookupId)
-            append("&entity=song")
-            lookupKey.countryCode?.takeIf { it.isNotBlank() }?.let { countryCode ->
-                append("&country=")
-                append(countryCode)
-            }
+        if (service !in SUPPORTED_DIRECT_SERVICES) {
+            return null
         }
 
-        val payload = httpClient.getText(
-            endpoint,
-            headers = mapOf("Accept" to "application/json"),
-        ) ?: return null
-
-        val songBlock = SONG_BLOCK_REGEX.find(payload)?.value ?: payload
-        val title = extractJsonString(songBlock, "trackName")
-        val artist = extractJsonString(songBlock, "artistName")
-        val album = extractJsonString(songBlock, "collectionName")
-        val durationMs = extractJsonLong(songBlock, "trackTimeMillis")
-        val queryHint = listOfNotNull(artist, title)
-            .joinToString(" ")
-            .takeIf { it.isNotBlank() }
-
-        return DownloadSourceMetadata(
-            title = title,
-            artist = artist,
-            album = album,
-            durationMs = durationMs,
-            queryHint = queryHint,
-        ).takeIf { it.title != null || it.artist != null }
+        return backend.fetchInfo(url, service, session)
+            ?: resolveOEmbed(url, service)
+            ?: resolveHtml(url, session)
     }
 
     private fun resolveOEmbed(
@@ -98,7 +47,6 @@ internal class CompositeDownloadMetadataResolver(
 
     private fun resolveHtml(
         url: String,
-        service: DownloadService,
         session: DownloadSession?,
     ): DownloadSourceMetadata? {
         val headers = buildMap {
@@ -118,7 +66,6 @@ internal class CompositeDownloadMetadataResolver(
             DownloadService.YOUTUBE -> "https://www.youtube.com/oembed?format=json&url=$encodedUrl"
             DownloadService.TIKTOK -> "https://www.tiktok.com/oembed?url=$encodedUrl"
             DownloadService.SOUNDCLOUD -> "https://soundcloud.com/oembed?format=json&url=$encodedUrl"
-            DownloadService.SPOTIFY -> "https://open.spotify.com/oembed?url=$encodedUrl"
             else -> null
         }
     }
@@ -157,29 +104,16 @@ internal class CompositeDownloadMetadataResolver(
             ?.normalizedOrNull()
     }
 
-    private fun extractJsonLong(
-        payload: String,
-        field: String,
-    ): Long? {
-        return Regex(
-            "\"${Regex.escape(field)}\"\\s*:\\s*(\\d+)",
-            RegexOption.IGNORE_CASE,
-        ).find(payload)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
-            ?.takeIf { it > 0L }
-    }
-
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 
     private companion object {
         const val FALLBACK_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14; LuxMusic) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36"
 
-        val SONG_BLOCK_REGEX = Regex(
-            """\{[^{}]*"kind"\s*:\s*"song"[^{}]*}""",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        val SUPPORTED_DIRECT_SERVICES = setOf(
+            DownloadService.YOUTUBE,
+            DownloadService.TIKTOK,
+            DownloadService.SOUNDCLOUD,
         )
     }
 }

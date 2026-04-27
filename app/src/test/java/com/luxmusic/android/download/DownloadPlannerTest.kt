@@ -40,6 +40,7 @@ class DownloadPlannerTest {
 
         assertEquals(1, plan.attempts.size)
         assertEquals(DownloadAttemptKind.DIRECT, plan.attempts.single().kind)
+        assertEquals(DownloadService.TIKTOK, plan.attempts.single().requestService)
     }
 
     @Test
@@ -53,67 +54,24 @@ class DownloadPlannerTest {
 
         assertEquals(1, plan.attempts.size)
         assertEquals(DownloadAttemptKind.DIRECT, plan.attempts.single().kind)
+        assertEquals(DownloadService.SOUNDCLOUD, plan.attempts.single().requestService)
     }
 
     @Test
-    fun `apple music uses metadata fallback only`() {
-        val plan = planner.createPlan(
-            sourceUrl = "https://music.apple.com/us/album/song-name/1712345678?i=1712345680",
-            sourceService = DownloadService.APPLE_MUSIC,
-            metadata = metadata,
-            hasSession = false,
-        )
-
-        assertEquals(1, plan.attempts.size)
-        assertEquals(DownloadAttemptKind.MATCHED_SEARCH, plan.attempts.single().kind)
-        assertTrue(planner.requiresMetadataBeforeDownload(DownloadService.APPLE_MUSIC))
-    }
-
-    @Test
-    fun `spotify uses metadata fallback only`() {
+    fun `unsupported services get no plan`() {
         val plan = planner.createPlan(
             sourceUrl = "https://open.spotify.com/track/abc",
-            sourceService = DownloadService.SPOTIFY,
+            sourceService = DownloadService.UNKNOWN,
             metadata = metadata,
             hasSession = false,
         )
 
-        assertEquals(1, plan.attempts.size)
-        assertEquals(DownloadAttemptKind.MATCHED_SEARCH, plan.attempts.single().kind)
-        assertTrue(planner.requiresMetadataBeforeDownload(DownloadService.SPOTIFY))
+        assertTrue(plan.attempts.isEmpty())
     }
 
     @Test
-    fun `yandex music keeps direct attempt and fallback`() {
-        val plan = planner.createPlan(
-            sourceUrl = "https://music.yandex.ru/album/1/track/2",
-            sourceService = DownloadService.YANDEX_MUSIC,
-            metadata = metadata,
-            hasSession = false,
-        )
-
-        assertEquals(2, plan.attempts.size)
-        assertEquals(DownloadAttemptKind.DIRECT, plan.attempts[0].kind)
-        assertEquals(DownloadAttemptKind.MATCHED_SEARCH, plan.attempts[1].kind)
-    }
-
-    @Test
-    fun `vk music keeps direct attempt and fallback`() {
-        val plan = planner.createPlan(
-            sourceUrl = "https://vk.com/audio-1_2",
-            sourceService = DownloadService.VK_MUSIC,
-            metadata = metadata,
-            hasSession = false,
-        )
-
-        assertEquals(2, plan.attempts.size)
-        assertEquals(DownloadAttemptKind.DIRECT, plan.attempts[0].kind)
-        assertEquals(DownloadAttemptKind.MATCHED_SEARCH, plan.attempts[1].kind)
-    }
-
-    @Test
-    fun `planner requires metadata for apple but not for youtube`() {
-        assertTrue(planner.requiresMetadataBeforeDownload(DownloadService.APPLE_MUSIC))
+    fun `planner does not require metadata-only workflows anymore`() {
         assertFalse(planner.requiresMetadataBeforeDownload(DownloadService.YOUTUBE))
+        assertFalse(planner.requiresMetadataBeforeDownload(DownloadService.UNKNOWN))
     }
 }

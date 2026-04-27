@@ -77,8 +77,7 @@ class DownloadAccountStore(private val context: Context) {
     }
 
     private fun loadStates(): List<DownloadAccountState> {
-        return DownloadService.entries
-            .filterNot { it == DownloadService.UNKNOWN }
+        return SUPPORTED_ACCOUNT_SERVICES
             .map { service ->
                 val session = sessionFor(service)
                 DownloadAccountState(
@@ -143,5 +142,7 @@ class DownloadAccountStore(private val context: Context) {
 
     private companion object {
         const val PREFERENCES_NAME = "luxmusic_download_accounts"
+
+        val SUPPORTED_ACCOUNT_SERVICES = listOf(DownloadService.YOUTUBE)
     }
 }

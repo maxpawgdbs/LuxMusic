@@ -26,24 +26,16 @@ This makes the workflow testable on the JVM without Android runtime dependencies
 - `YouTube`: direct extractor download via `yt-dlp`
 - `TikTok`: direct extractor download via `yt-dlp`
 - `SoundCloud`: direct extractor download via `yt-dlp`
-- `Yandex Music`: direct extractor first, then YouTube metadata fallback
-- `VK Music`: direct extractor first, then YouTube metadata fallback
-- `Apple Music`: metadata extraction from Apple lookup endpoint, then YouTube metadata fallback
-- `Spotify`: metadata extraction from Spotify oEmbed endpoint, then YouTube metadata fallback
 
 ## Libraries and APIs used
 
 - `io.github.junkfood02.youtubedl-android`
   Android wrapper around `yt-dlp`, used for direct extractor downloads and extractor info probing.
-- Apple lookup endpoint
-  Used to resolve track metadata from Apple Music links without depending on a user session.
-- Spotify oEmbed endpoint
-  Used to resolve title and artist from Spotify links without direct audio access.
 - HTML/OpenGraph metadata fallback
-  Used when a service has no reliable public metadata endpoint for the exact URL.
+  Used as a last-resort metadata hint when extractor probing does not return enough information.
 
 ## Notes
 
-- Apple Music and Spotify are not treated as direct-file sources because the new module is built around public metadata plus fallback matching, not DRM stream extraction.
-- Yandex Music and VK Music keep session support because extractor success for those services is often tied to a valid user session.
-- The test suite covers workflow scenarios for every requested platform and verifies the exact routing path used by the new module.
+- The supported download surface is intentionally narrow now: only `YouTube`, `TikTok`, and `SoundCloud`.
+- A YouTube session can still be attached to reduce `429` and similar rate-limit failures.
+- The test suite now verifies only the supported direct-download platforms plus explicit rejection of unsupported links.
