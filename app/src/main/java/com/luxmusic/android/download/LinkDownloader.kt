@@ -40,6 +40,7 @@ class LinkDownloader(
     @Volatile
     private var initialized = false
 
+    @Synchronized
     fun initialize() {
         if (initialized) return
 
@@ -48,7 +49,7 @@ class LinkDownloader(
             initialized = true
             mutableState.value = DownloadState(
                 isAvailable = true,
-                statusMessage = "Вставьте ссылку. LuxMusic попробует сохранить аудио локально на устройство.",
+                statusMessage = "Вставьте ссылку с YouTube, TikTok, SoundCloud или другой поддерживаемой площадки.",
             )
         } catch (error: Throwable) {
             mutableState.value = DownloadState(
@@ -60,6 +61,18 @@ class LinkDownloader(
     }
 
     suspend fun download(url: String): Result<List<Track>> = withContext(Dispatchers.IO) {
+        val normalizedUrl = DownloadParsing.normalizeUserInput(url)
+        if (!DownloadParsing.isDownloadableUrl(normalizedUrl)) {
+            val error = IllegalArgumentException("Вставьте корректную ссылку на страницу с музыкой.")
+            mutableState.value = mutableState.value.copy(
+                isRunning = false,
+                progress = 0f,
+                statusMessage = "Ссылка не распознана.",
+                errorMessage = error.message,
+            )
+            return@withContext Result.failure(error)
+        }
+
         if (!initialized) initialize()
         if (!initialized) {
             return@withContext Result.failure(
@@ -67,7 +80,7 @@ class LinkDownloader(
             )
         }
 
-        val sourceService = DownloadParsing.detectService(url)
+        val sourceService = DownloadParsing.detectService(normalizedUrl)
         mutableState.value = mutableState.value.copy(
             isRunning = true,
             progress = 0f,
@@ -78,7 +91,7 @@ class LinkDownloader(
 
         try {
             val result = executor.execute(
-                sourceUrl = url,
+                sourceUrl = normalizedUrl,
                 sessionProvider = { service -> accountStore.sessionFor(service)?.toDownloadSession() },
             ) { progress, message ->
                 mutableState.value = mutableState.value.copy(
@@ -148,7 +161,7 @@ class LinkDownloader(
 
             service == DownloadService.UNKNOWN -> {
                 rawMessage.ifBlank {
-                    "Скачивание поддерживается только из YouTube, TikTok и SoundCloud."
+                    "Не удалось скачать аудио. Проверьте ссылку и поддержку площадки в yt-dlp."
                 }
             }
 
@@ -168,7 +181,7 @@ class LinkDownloader(
             DownloadService.SOUNDCLOUD ->
                 "Не удалось скачать трек из SoundCloud."
 
-            else -> "Не удалось скачать музыку по ссылке."
+            else -> "Не удалось скачать музыку по ссылке. Проверьте доступность трека и повторите попытку."
         }
     }
 
@@ -224,12 +237,30 @@ class LinkDownloader(
                     headers.forEach { (name, value) -> setRequestProperty(name, value) }
                 }
 
-                connection.inputStream.bufferedReader().use { it.readText() }
+                try {
+                    connection.inputStream.bufferedReader().use { reader ->
+                        val output = StringBuilder()
+                        val buffer = CharArray(8 * 1_024)
+                        while (output.length < MAX_RESPONSE_CHARS) {
+                            val read = reader.read(
+                                buffer,
+                                0,
+                                minOf(buffer.size, MAX_RESPONSE_CHARS - output.length),
+                            )
+                            if (read < 0) break
+                            output.append(buffer, 0, read)
+                        }
+                        output.toString()
+                    }
+                } finally {
+                    connection.disconnect()
+                }
             }.getOrNull()
         }
 
         private companion object {
-            const val TIMEOUT_MS = 30_000
+            const val TIMEOUT_MS = 15_000
+            const val MAX_RESPONSE_CHARS = 1_000_000
         }
     }
 }

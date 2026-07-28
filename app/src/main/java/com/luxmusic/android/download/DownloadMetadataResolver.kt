@@ -13,13 +13,39 @@ internal class CompositeDownloadMetadataResolver(
         service: DownloadService,
         session: DownloadSession?,
     ): DownloadSourceMetadata? {
-        if (service !in SUPPORTED_DIRECT_SERVICES) {
-            return null
-        }
+        if (!DownloadParsing.isDownloadableUrl(url)) return null
 
-        return backend.fetchInfo(url, service, session)
+        return service.takeIf { it in EXTRACTOR_METADATA_SERVICES }
+            ?.let { backend.fetchInfo(url, it, session) }
+            ?: resolveAppleMusic(url, service)
             ?: resolveOEmbed(url, service)
             ?: resolveHtml(url, session)
+    }
+
+    private fun resolveAppleMusic(
+        url: String,
+        service: DownloadService,
+    ): DownloadSourceMetadata? {
+        if (service != DownloadService.APPLE_MUSIC) return null
+        val key = DownloadParsing.appleMusicLookupKey(url) ?: return null
+        val country = key.countryCode?.let { "&country=$it" }.orEmpty()
+        val payload = httpClient.getText(
+            "https://itunes.apple.com/lookup?id=${key.lookupId}$country",
+            headers = mapOf("Accept" to "application/json"),
+        ) ?: return null
+        val title = extractJsonString(payload, "trackName")
+            ?: extractJsonString(payload, "collectionName")
+        val artist = extractJsonString(payload, "artistName")
+
+        return DownloadSourceMetadata(
+            title = title,
+            artist = artist,
+            album = extractJsonString(payload, "collectionName"),
+            durationMs = extractJsonLong(payload, "trackTimeMillis"),
+            queryHint = listOfNotNull(artist, title)
+                .joinToString(" ")
+                .takeIf { it.isNotBlank() },
+        ).takeIf { it.title != null || it.artist != null }
     }
 
     private fun resolveOEmbed(
@@ -66,6 +92,7 @@ internal class CompositeDownloadMetadataResolver(
             DownloadService.YOUTUBE -> "https://www.youtube.com/oembed?format=json&url=$encodedUrl"
             DownloadService.TIKTOK -> "https://www.tiktok.com/oembed?url=$encodedUrl"
             DownloadService.SOUNDCLOUD -> "https://soundcloud.com/oembed?format=json&url=$encodedUrl"
+            DownloadService.SPOTIFY -> "https://open.spotify.com/oembed?url=$encodedUrl"
             else -> null
         }
     }
@@ -104,16 +131,30 @@ internal class CompositeDownloadMetadataResolver(
             ?.normalizedOrNull()
     }
 
+    private fun extractJsonLong(
+        payload: String,
+        field: String,
+    ): Long? {
+        return Regex(
+            "\"${Regex.escape(field)}\"\\s*:\\s*(\\d+)",
+            RegexOption.IGNORE_CASE,
+        ).find(payload)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+    }
+
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 
     private companion object {
         const val FALLBACK_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14; LuxMusic) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36"
 
-        val SUPPORTED_DIRECT_SERVICES = setOf(
+        val EXTRACTOR_METADATA_SERVICES = setOf(
             DownloadService.YOUTUBE,
             DownloadService.TIKTOK,
             DownloadService.SOUNDCLOUD,
+            DownloadService.UNKNOWN,
         )
     }
 }

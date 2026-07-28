@@ -16,9 +16,6 @@ internal class LinkDownloadExecutor(
     private val workspaceManager: DownloadWorkspaceManager,
 ) {
     @Volatile
-    private var stableRefreshAttempted = false
-
-    @Volatile
     private var nightlyRefreshAttempted = false
 
     suspend fun execute(
@@ -26,14 +23,21 @@ internal class LinkDownloadExecutor(
         sessionProvider: (DownloadService) -> DownloadSession?,
         onStatus: (progress: Float, message: String) -> Unit,
     ): DownloadExecutionResult = withContext(Dispatchers.IO) {
-        val sourceService = DownloadParsing.detectService(sourceUrl)
+        val normalizedUrl = DownloadParsing.normalizeUserInput(sourceUrl)
+        if (!DownloadParsing.isDownloadableUrl(normalizedUrl)) {
+            throw IllegalArgumentException("Вставьте корректную ссылку, начинающуюся с http:// или https://.")
+        }
+
+        val sourceService = DownloadParsing.detectService(normalizedUrl)
         val sourceSession = sessionProvider(sourceService)
-
-        refreshStableExtractorsIfNeeded(sourceService, onStatus)
-
-        val sourceMetadata = metadataResolver.resolve(sourceUrl, sourceService, sourceSession)
+        val sourceMetadata = if (planner.requiresMetadataBeforeDownload(sourceService)) {
+            onStatus(0.04f, "Получаем название и исполнителя из ${sourceService.title}.")
+            metadataResolver.resolve(normalizedUrl, sourceService, sourceSession)
+        } else {
+            null
+        }
         val plan = planner.createPlan(
-            sourceUrl = sourceUrl,
+            sourceUrl = normalizedUrl,
             sourceService = sourceService,
             metadata = sourceMetadata,
             hasSession = sourceSession != null,
@@ -105,11 +109,10 @@ internal class LinkDownloadExecutor(
                 service = attempt.requestService,
                 session = session,
                 outputDir = workspace,
-            ) { progress, line ->
+            ) { progress, _ ->
                 onStatus(
-                    progress.coerceIn(0f, 100f) / 100f,
-                    line?.takeIf { it.isNotBlank() }
-                        ?: defaultProgressMessage(attempt),
+                    (0.1f + progress.coerceIn(0f, 100f) / 100f * 0.85f).coerceIn(0f, 0.95f),
+                    defaultProgressMessage(attempt),
                 )
             }
 
@@ -153,25 +156,18 @@ internal class LinkDownloadExecutor(
         }
     }
 
-    private fun refreshStableExtractorsIfNeeded(
-        service: DownloadService,
-        onStatus: (progress: Float, message: String) -> Unit,
-    ) {
-        if (stableRefreshAttempted) return
-        stableRefreshAttempted = true
-        onStatus(0.02f, "Обновляем extractor-модуль для ${service.title}.")
-        runCatching { backend.update(ExtractorChannel.STABLE) }
-    }
-
     private fun refreshNightlyExtractorsIfNeeded(
         service: DownloadService,
         onStatus: (progress: Float, message: String) -> Unit,
     ): Boolean {
         if (nightlyRefreshAttempted) return false
         nightlyRefreshAttempted = true
-        onStatus(0.06f, "Повторяем запрос после обновления nightly extractor для ${service.title}.")
-        runCatching { backend.update(ExtractorChannel.NIGHTLY) }
-        return true
+        onStatus(0.08f, "Обновляем поддержку ${service.title} и повторяем запрос.")
+        val updated = runCatching { backend.update(ExtractorChannel.NIGHTLY) }.isSuccess
+        if (!updated) {
+            nightlyRefreshAttempted = false
+        }
+        return updated
     }
 
     private fun selectAudioFiles(
@@ -263,14 +259,14 @@ internal class LinkDownloadExecutor(
     private fun noDownloadPlanHint(service: DownloadService): String {
         return when {
             planner.requiresMetadataBeforeDownload(service) -> {
-                "Не удалось извлечь метаданные из ссылки ${service.title}. Без названия и исполнителя LuxMusic не сможет подобрать офлайн-копию."
+                "Не удалось получить название и исполнителя из ${service.title}. Проверьте доступность ссылки."
             }
 
             service == DownloadService.UNKNOWN -> {
-                "Скачивание поддерживается только из YouTube, TikTok и SoundCloud."
+                "Не удалось распознать ссылку. Вставьте прямую ссылку с поддерживаемой yt-dlp площадки."
             }
 
-            else -> "Прямая загрузка из ${service.title} сейчас недоступна. LuxMusic поддерживает только YouTube, TikTok и SoundCloud."
+            else -> "Не удалось подготовить загрузку из ${service.title}."
         }
     }
 

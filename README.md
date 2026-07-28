@@ -1,8 +1,6 @@
 # LuxMusic
 
-[![Android CI](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/ci.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/ci.yml)
 [![Release APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml)
-[![Nightly APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/nightly.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/nightly.yml)
 
 Android music player prototype with an offline-first local library, playlists, link downloads, and Media3 playback.
 
@@ -11,7 +9,8 @@ Android music player prototype with an offline-first local library, playlists, l
 - Offline local library stored inside the app sandbox.
 - Playlist management.
 - Shuffle, repeat-all, and repeat-one playback modes.
-- Link downloads through `yt-dlp` for YouTube, TikTok, and SoundCloud only.
+- Fast audio-only link downloads through `yt-dlp` for YouTube, TikTok, SoundCloud, and other supported sites.
+- Metadata-based matching for Spotify, Apple Music, Яндекс Музыка, and VK Музыка links.
 - Foreground media playback notification with progress bar and transport controls.
 - Jetpack Compose UI on Material 3.
 
@@ -24,11 +23,8 @@ Android music player prototype with an offline-first local library, playlists, l
 
 ## CI/CD
 
-- `Android CI` runs on every push to `main`, on every pull request, and manually.
-- `Release APK` runs on every push to `main`, on tags matching `v*`, and manually.
-- `Nightly APK` runs on schedule and manually.
-- GitHub Actions no longer uploads build artifacts into Actions storage.
-- GitHub Releases publish one signed `arm64-v8a` release APK for real devices.
+- One `Android build` workflow runs only for commits pushed to `main`.
+- It tests the app, runs release lint, builds one signed `arm64-v8a` APK, and updates the `edge` GitHub Release.
 
 ## Stable APK updates
 

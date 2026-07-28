@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/notification_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="12dp"
-    android:paddingTop="12dp"
+    android:paddingTop="6dp"
     android:paddingEnd="12dp"
-    android:paddingBottom="10dp">
+    android:paddingBottom="6dp"
+    tools:ignore="UseAppTint">
 
     <ImageView
         android:id="@+id/notification_artwork"
@@ -53,7 +55,8 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="#CCFFFFFF"
-            android:textSize="12sp" />
+            android:textSize="12sp"
+            android:visibility="gone" />
 
         <ProgressBar
             android:id="@+id/notification_progress"
@@ -62,14 +65,16 @@
             android:layout_height="4dp"
             android:layout_marginTop="8dp"
             android:indeterminate="false"
-            android:max="100" />
+            android:max="100"
+            android:visibility="gone" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/notification_position"
@@ -85,6 +90,44 @@
                 android:layout_height="wrap_content"
                 android:textColor="#CCFFFFFF"
                 android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:layout_marginTop="2dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/notification_previous"
+                android:layout_width="44dp"
+                android:layout_height="32dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/notification_previous"
+                android:padding="5dp"
+                android:src="@android:drawable/ic_media_previous"
+                android:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/notification_toggle"
+                android:layout_width="48dp"
+                android:layout_height="32dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/notification_play"
+                android:padding="4dp"
+                android:src="@android:drawable/ic_media_play"
+                android:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/notification_next"
+                android:layout_width="44dp"
+                android:layout_height="32dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/notification_next"
+                android:padding="5dp"
+                android:src="@android:drawable/ic_media_next"
+                android:tint="@android:color/white" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

@@ -58,20 +58,38 @@ class DownloadPlannerTest {
     }
 
     @Test
-    fun `unsupported services get no plan`() {
+    fun `generic yt dlp sites use direct extraction`() {
         val plan = planner.createPlan(
-            sourceUrl = "https://open.spotify.com/track/abc",
+            sourceUrl = "https://bandcamp.com/track/abc",
             sourceService = DownloadService.UNKNOWN,
             metadata = metadata,
             hasSession = false,
         )
 
-        assertTrue(plan.attempts.isEmpty())
+        assertEquals(1, plan.attempts.size)
+        assertEquals(DownloadAttemptKind.DIRECT, plan.attempts.single().kind)
+        assertEquals(DownloadService.UNKNOWN, plan.attempts.single().requestService)
     }
 
     @Test
-    fun `planner does not require metadata-only workflows anymore`() {
+    fun `catalog services use metadata matched youtube fallback`() {
+        val plan = planner.createPlan(
+            sourceUrl = "https://open.spotify.com/track/abc",
+            sourceService = DownloadService.SPOTIFY,
+            metadata = metadata,
+            hasSession = false,
+        )
+
+        assertEquals(1, plan.attempts.size)
+        assertEquals(DownloadAttemptKind.MATCHED_SEARCH, plan.attempts.single().kind)
+        assertEquals("ytsearch1:Artist Name Track Name audio", plan.attempts.single().requestUrl)
+    }
+
+    @Test
+    fun `planner requires metadata only for catalog services`() {
         assertFalse(planner.requiresMetadataBeforeDownload(DownloadService.YOUTUBE))
         assertFalse(planner.requiresMetadataBeforeDownload(DownloadService.UNKNOWN))
+        assertTrue(planner.requiresMetadataBeforeDownload(DownloadService.SPOTIFY))
+        assertTrue(planner.requiresMetadataBeforeDownload(DownloadService.APPLE_MUSIC))
     }
 }

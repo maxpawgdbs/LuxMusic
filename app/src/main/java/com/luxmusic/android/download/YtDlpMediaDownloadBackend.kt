@@ -7,15 +7,17 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.mapper.VideoInfo
 import java.io.File
+import java.util.UUID
 
 internal class YtDlpMediaDownloadBackend(
     private val context: Context,
 ) : MediaDownloadBackend {
     private val youtubeDl by lazy { YoutubeDL.getInstance() }
     private val ffmpeg by lazy { FFmpeg.getInstance() }
+    @Volatile
+    private var ffmpegInitialized = false
 
     fun initialize() {
-        ffmpeg.init(context)
         youtubeDl.init(context)
     }
 
@@ -58,7 +60,10 @@ internal class YtDlpMediaDownloadBackend(
         outputDir: File,
         onProgress: (progress: Float, line: String?) -> Unit,
     ) {
-        val jobId = "luxmusic-${System.currentTimeMillis()}"
+        if (requestProfileFor(service).extractAudio) {
+            initializeFfmpegIfNeeded()
+        }
+        val jobId = "luxmusic-${UUID.randomUUID()}"
         youtubeDl.execute(
             buildDownloadRequest(
                 url = requestUrl,
@@ -70,6 +75,13 @@ internal class YtDlpMediaDownloadBackend(
         ) { progress, _, line ->
             onProgress(progress, line)
         }
+    }
+
+    @Synchronized
+    private fun initializeFfmpegIfNeeded() {
+        if (ffmpegInitialized) return
+        ffmpeg.init(context)
+        ffmpegInitialized = true
     }
 
     private fun buildDownloadRequest(
@@ -86,7 +98,9 @@ internal class YtDlpMediaDownloadBackend(
             .addOption("--newline")
             .addOption("--restrict-filenames")
             .addOption("--no-part")
+            .addOption("--no-mtime")
             .addOption("--abort-on-unavailable-fragments")
+            .addOption("--concurrent-fragments", 4)
             .addOption("--retries", serviceRequestRetries(service))
             .addOption("--fragment-retries", serviceFragmentRetries(service))
             .addOption("--extractor-retries", serviceExtractorRetries(service))
@@ -94,14 +108,12 @@ internal class YtDlpMediaDownloadBackend(
             .addOption("--sleep-requests", serviceSleepRequestsSeconds(service, session))
             .addOption("--write-thumbnail")
             .addOption("--write-info-json")
-            .addOption("--write-auto-subs")
-            .addOption("--sub-langs", "all")
-            .addOption("-o", jobDir.absolutePath + "/%(title).140B.%(ext)s")
+            .addOption("-o", jobDir.absolutePath + "/%(title).120B [%(id)s].%(ext)s")
 
         if (profile.extractAudio) {
             request
                 .addOption("--extract-audio")
-                .addOption("--audio-format", profile.targetAudioExtension ?: "mp3")
+                .addOption("--audio-format", profile.targetAudioExtension ?: "best")
                 .addOption("--audio-quality", "0")
         }
 
@@ -159,31 +171,22 @@ internal class YtDlpMediaDownloadBackend(
     }
 
     private fun serviceRequestRetries(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 15
-        else -> 10
-    }
-
-    private fun serviceFragmentRetries(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 15
-        else -> 10
-    }
-
-    private fun serviceExtractorRetries(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 6
+        DownloadService.YOUTUBE -> 5
         else -> 3
     }
 
-    private fun serviceSocketTimeoutSeconds(service: DownloadService): Int = when (service) {
-        DownloadService.YANDEX_MUSIC -> 60
-        else -> 30
-    }
+    private fun serviceFragmentRetries(service: DownloadService): Int = 3
+
+    private fun serviceExtractorRetries(service: DownloadService): Int = 2
+
+    private fun serviceSocketTimeoutSeconds(service: DownloadService): Int = 20
 
     private fun serviceSleepRequestsSeconds(
         service: DownloadService,
         session: DownloadSession?,
     ): Int = when (service) {
-        DownloadService.YOUTUBE -> if (session == null) 3 else 1
-        else -> 1
+        DownloadService.YOUTUBE -> if (session == null) 1 else 0
+        else -> 0
     }
 
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
@@ -192,18 +195,29 @@ internal class YtDlpMediaDownloadBackend(
         internal fun requestProfileFor(service: DownloadService): YtDlpRequestProfile {
             return when (service) {
                 DownloadService.YOUTUBE -> YtDlpRequestProfile(
-                    formatSelector = "bestvideo*+bestaudio/best",
+                    formatSelector = AUDIO_ONLY_FORMAT,
+                    extractAudio = false,
+                    targetAudioExtension = null,
+                )
+
+                DownloadService.TIKTOK,
+                DownloadService.UNKNOWN,
+                -> YtDlpRequestProfile(
+                    formatSelector = "$AUDIO_ONLY_FORMAT/best[acodec!=none]",
                     extractAudio = true,
-                    targetAudioExtension = "mp3",
+                    targetAudioExtension = "best",
                 )
 
                 else -> YtDlpRequestProfile(
-                    formatSelector = "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[acodec!=none]/best[acodec!=none]/bestaudio/best",
+                    formatSelector = AUDIO_ONLY_FORMAT,
                     extractAudio = false,
                     targetAudioExtension = null,
                 )
             }
         }
+
+        private const val AUDIO_ONLY_FORMAT =
+            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=none]"
     }
 }
 

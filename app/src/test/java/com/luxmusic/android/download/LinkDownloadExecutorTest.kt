@@ -4,7 +4,6 @@ import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Track
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -31,6 +30,8 @@ class LinkDownloadExecutorTest {
         assertEquals(DownloadAttemptKind.DIRECT, result.finalAttempt.kind)
         assertEquals(DownloadService.YOUTUBE, result.finalAttempt.requestService)
         assertEquals(1, result.tracks.size)
+        assertEquals(0, harness.backend.fetchInfoCalls)
+        assertEquals(0, harness.backend.updateCalls)
     }
 
     @Test
@@ -84,27 +85,72 @@ class LinkDownloadExecutorTest {
     }
 
     @Test
-    fun `unsupported service returns no plan error`() = runBlocking {
+    fun `generic yt dlp site downloads directly`() = runBlocking {
         val harness = testHarness(
-            downloadOutcomes = emptyMap(),
+            downloadOutcomes = mapOf(
+                "https://bandcamp.com/track/abc" to DownloadOutcome.Success("generic.m4a"),
+            ),
         )
 
-        val failure = runCatching {
-            harness.executor.execute("https://open.spotify.com/track/abc", harness::sessionFor, harness::status)
-        }.exceptionOrNull()
+        val result = harness.executor.execute(
+            "bandcamp.com/track/abc",
+            harness::sessionFor,
+            harness::status,
+        )
 
-        assertTrue(failure is IllegalStateException)
-        assertTrue(failure?.message.orEmpty().contains("YouTube, TikTok и SoundCloud"))
+        assertEquals(DownloadAttemptKind.DIRECT, result.finalAttempt.kind)
+        assertEquals(DownloadService.UNKNOWN, result.finalAttempt.requestService)
+    }
+
+    @Test
+    fun `failed direct download updates extractor and retries once`() = runBlocking {
+        val harness = testHarness(
+            downloadOutcomes = mapOf(
+                "https://youtu.be/retry" to DownloadOutcome.SuccessAfterFailure("retry.m4a"),
+            ),
+        )
+
+        val result = harness.executor.execute(
+            "https://youtu.be/retry",
+            harness::sessionFor,
+            harness::status,
+        )
+
+        assertEquals(1, result.tracks.size)
+        assertEquals(1, harness.backend.updateCalls)
+    }
+
+    @Test
+    fun `spotify resolves metadata then downloads a matched result`() = runBlocking {
+        val harness = testHarness(
+            httpResponses = mapOf(
+                "https://open.spotify.com/oembed" to
+                    """{"title":"Track Name","author_name":"Artist Name"}""",
+            ),
+            downloadOutcomes = mapOf(
+                "ytsearch1:Artist Name Track Name audio" to DownloadOutcome.Success("matched.m4a"),
+            ),
+        )
+
+        val result = harness.executor.execute(
+            "https://open.spotify.com/track/abc",
+            harness::sessionFor,
+            harness::status,
+        )
+
+        assertEquals(DownloadAttemptKind.MATCHED_SEARCH, result.finalAttempt.kind)
+        assertEquals(DownloadService.YOUTUBE, result.finalAttempt.requestService)
     }
 
     private fun testHarness(
         infoResponses: Map<String, DownloadSourceMetadata> = emptyMap(),
+        httpResponses: Map<String, String> = emptyMap(),
         downloadOutcomes: Map<String, DownloadOutcome>,
     ): TestHarness {
         val backend = FakeDownloadBackend(infoResponses, downloadOutcomes)
         val resolver = CompositeDownloadMetadataResolver(
             backend = backend,
-            httpClient = FakeMetadataHttpClient(),
+            httpClient = FakeMetadataHttpClient(httpResponses),
         )
         val importer = FakeImporter()
         val audioInspector = FakeAudioInspector()
@@ -119,11 +165,13 @@ class LinkDownloadExecutorTest {
                 audioInspector = audioInspector,
                 workspaceManager = workspaceManager,
             ),
+            backend = backend,
         )
     }
 
     private class TestHarness(
         val executor: LinkDownloadExecutor,
+        val backend: FakeDownloadBackend,
     ) {
         fun sessionFor(service: DownloadService): DownloadSession? = null
 
@@ -132,19 +180,29 @@ class LinkDownloadExecutorTest {
 
     private sealed class DownloadOutcome {
         data class Success(val fileName: String) : DownloadOutcome()
+        data class SuccessAfterFailure(val fileName: String) : DownloadOutcome()
     }
 
     private class FakeDownloadBackend(
         private val infoResponses: Map<String, DownloadSourceMetadata>,
         private val downloadOutcomes: Map<String, DownloadOutcome>,
     ) : MediaDownloadBackend {
-        override fun update(channel: ExtractorChannel) = Unit
+        private val downloadAttempts = mutableMapOf<String, Int>()
+        var fetchInfoCalls = 0
+        var updateCalls = 0
+
+        override fun update(channel: ExtractorChannel) {
+            updateCalls++
+        }
 
         override fun fetchInfo(
             url: String,
             service: DownloadService,
             session: DownloadSession?,
-        ): DownloadSourceMetadata? = infoResponses[url]
+        ): DownloadSourceMetadata? {
+            fetchInfoCalls++
+            return infoResponses[url]
+        }
 
         override fun download(
             requestUrl: String,
@@ -153,20 +211,41 @@ class LinkDownloadExecutorTest {
             outputDir: File,
             onProgress: (progress: Float, line: String?) -> Unit,
         ) {
+            val attemptNumber = downloadAttempts.getOrDefault(requestUrl, 0) + 1
+            downloadAttempts[requestUrl] = attemptNumber
             when (val outcome = downloadOutcomes[requestUrl]) {
                 is DownloadOutcome.Success -> {
-                    onProgress(50f, "downloading")
-                    File(outputDir, outcome.fileName).writeBytes(ByteArray(128 * 1_024) { 1 })
-                    onProgress(100f, "done")
+                    writeSuccess(outputDir, outcome.fileName, onProgress)
+                }
+
+                is DownloadOutcome.SuccessAfterFailure -> {
+                    if (attemptNumber == 1) {
+                        error("outdated extractor")
+                    }
+                    writeSuccess(outputDir, outcome.fileName, onProgress)
                 }
 
                 null -> error("unexpected request: $requestUrl")
             }
         }
+
+        private fun writeSuccess(
+            outputDir: File,
+            fileName: String,
+            onProgress: (progress: Float, line: String?) -> Unit,
+        ) {
+            onProgress(50f, "downloading")
+            File(outputDir, fileName).writeBytes(ByteArray(128 * 1_024) { 1 })
+            onProgress(100f, "done")
+        }
     }
 
-    private class FakeMetadataHttpClient : MetadataHttpClient {
-        override fun getText(url: String, headers: Map<String, String>): String? = null
+    private class FakeMetadataHttpClient(
+        private val responses: Map<String, String>,
+    ) : MetadataHttpClient {
+        override fun getText(url: String, headers: Map<String, String>): String? {
+            return responses.entries.firstOrNull { (prefix, _) -> url.startsWith(prefix) }?.value
+        }
     }
 
     private class FakeImporter : DownloadedTrackImporter {

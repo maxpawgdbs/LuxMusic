@@ -11,9 +11,4 @@ class LuxMusicApp : Application() {
     val playbackController by lazy { PlaybackController(this) }
     val downloadAccountStore by lazy { DownloadAccountStore(this) }
     val linkDownloader by lazy { LinkDownloader(this, libraryStore, downloadAccountStore) }
-
-    override fun onCreate() {
-        super.onCreate()
-        linkDownloader.initialize()
-    }
 }

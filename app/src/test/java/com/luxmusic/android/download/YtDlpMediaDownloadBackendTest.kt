@@ -8,12 +8,13 @@ import org.junit.Test
 
 class YtDlpMediaDownloadBackendTest {
     @Test
-    fun `youtube downloads video then extracts mp3 audio`() {
+    fun `youtube downloads audio only without conversion`() {
         val profile = YtDlpMediaDownloadBackend.requestProfileFor(DownloadService.YOUTUBE)
 
-        assertEquals("bestvideo*+bestaudio/best", profile.formatSelector)
-        assertTrue(profile.extractAudio)
-        assertEquals("mp3", profile.targetAudioExtension)
+        assertTrue(profile.formatSelector.startsWith("bestaudio"))
+        assertFalse(profile.formatSelector.contains("bestvideo"))
+        assertFalse(profile.extractAudio)
+        assertEquals(null, profile.targetAudioExtension)
     }
 
     @Test
@@ -21,10 +22,18 @@ class YtDlpMediaDownloadBackendTest {
         val profile = YtDlpMediaDownloadBackend.requestProfileFor(DownloadService.SOUNDCLOUD)
 
         assertEquals(
-            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[acodec!=none]/best[acodec!=none]/bestaudio/best",
+            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=none]",
             profile.formatSelector,
         )
         assertFalse(profile.extractAudio)
         assertEquals(null, profile.targetAudioExtension)
+    }
+
+    @Test
+    fun `tiktok extracts audio without forced transcoding`() {
+        val profile = YtDlpMediaDownloadBackend.requestProfileFor(DownloadService.TIKTOK)
+
+        assertTrue(profile.extractAudio)
+        assertEquals("best", profile.targetAudioExtension)
     }
 }

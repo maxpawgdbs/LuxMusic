@@ -4,14 +4,50 @@ import com.luxmusic.android.data.DownloadService
 import java.net.URL
 
 internal object DownloadParsing {
+    fun normalizeUserInput(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return ""
+
+        val extractedUrl = WEB_URL_PATTERN.find(trimmed)?.value
+            ?: DOMAIN_URL_PATTERN.find(trimmed)?.value
+            ?: trimmed
+        val withScheme = if (
+            extractedUrl.startsWith("http://", ignoreCase = true) ||
+            extractedUrl.startsWith("https://", ignoreCase = true)
+        ) {
+            extractedUrl
+        } else {
+            "https://$extractedUrl"
+        }
+
+        return withScheme.trimEnd('.', ',', ';', ')', ']', '}', '!', '?')
+    }
+
+    fun isDownloadableUrl(url: String): Boolean {
+        return runCatching {
+            val parsed = URL(url)
+            parsed.protocol.equals("http", ignoreCase = true) ||
+                parsed.protocol.equals("https", ignoreCase = true)
+        }.getOrDefault(false) && runCatching { URL(url).host.isNotBlank() }.getOrDefault(false)
+    }
+
     fun detectService(url: String): DownloadService {
-        val normalized = url.trim().lowercase()
+        val normalized = url.trim()
+        if (normalized.startsWith("ytsearch", ignoreCase = true)) {
+            return DownloadService.YOUTUBE
+        }
+
+        val host = runCatching { URL(normalized).host.lowercase().removeSuffix(".") }.getOrNull()
+            ?: return DownloadService.UNKNOWN
         return when {
-            "tiktok.com" in normalized || "vm.tiktok.com" in normalized || "vt.tiktok.com" in normalized ->
-                DownloadService.TIKTOK
-            "soundcloud.com" in normalized || "on.soundcloud.com" in normalized -> DownloadService.SOUNDCLOUD
-            "youtube.com" in normalized || "youtu.be" in normalized || "music.youtube.com" in normalized ||
-                normalized.startsWith("ytsearch") -> DownloadService.YOUTUBE
+            host.matchesDomain("tiktok.com") -> DownloadService.TIKTOK
+            host.matchesDomain("soundcloud.com") -> DownloadService.SOUNDCLOUD
+            host.matchesDomain("youtube.com") || host.matchesDomain("youtu.be") -> DownloadService.YOUTUBE
+            host.matchesDomain("music.yandex.ru") || host.matchesDomain("music.yandex.com") ->
+                DownloadService.YANDEX_MUSIC
+            host.matchesDomain("vk.com") || host.matchesDomain("vk.ru") -> DownloadService.VK_MUSIC
+            host.matchesDomain("music.apple.com") -> DownloadService.APPLE_MUSIC
+            host.matchesDomain("open.spotify.com") -> DownloadService.SPOTIFY
             else -> DownloadService.UNKNOWN
         }
     }
@@ -272,6 +308,10 @@ internal object DownloadParsing {
 
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 
+    private fun String.matchesDomain(domain: String): Boolean {
+        return this == domain || endsWith(".$domain")
+    }
+
     internal data class AppleMusicLookupKey(
         val countryCode: String?,
         val resourceId: String,
@@ -291,8 +331,6 @@ internal object DownloadParsing {
         " | ",
         " — ",
         " - ",
-        "В·",
-        "вЂў",
         "|",
     )
 
@@ -300,5 +338,11 @@ internal object DownloadParsing {
         " - ",
         " — ",
         " | ",
+    )
+
+    private val WEB_URL_PATTERN = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
+    private val DOMAIN_URL_PATTERN = Regex(
+        """(?:www\.)?(?:[\p{L}\d-]+\.)+[\p{L}]{2,}(?:/[^\s<>"']*)?""",
+        RegexOption.IGNORE_CASE,
     )
 }

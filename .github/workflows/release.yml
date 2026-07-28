@@ -1,18 +1,15 @@
-name: Release APK
+name: Android build
 
 on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: android-main
   cancel-in-progress: true
 
 jobs:
@@ -41,19 +38,15 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x gradlew
 
-      - name: Set app version
+      - name: Set commit build version
         shell: bash
         run: |
           BASE_VERSION="$(grep '^luxmusic.baseVersion=' gradle.properties | cut -d= -f2)"
           echo "LUXMUSIC_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "LUXMUSIC_VERSION_NAME=${BASE_VERSION}-edge.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          else
-            echo "LUXMUSIC_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-          fi
+          echo "LUXMUSIC_VERSION_NAME=${BASE_VERSION}-edge.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
 
-      - name: Verify and build APKs
-        run: ./gradlew --no-daemon test assembleDebug assembleRelease lintVitalRelease
+      - name: Test and build one release APK
+        run: ./gradlew --no-daemon offlineUnitTest lintRelease assembleRelease
 
       - name: Prepare GitHub release assets
         shell: bash
@@ -67,7 +60,6 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Update edge tag
-        if: github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -79,7 +71,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref == 'refs/heads/main' && 'edge' || github.ref_name }}
-          name: ${{ github.ref == 'refs/heads/main' && 'LuxMusic Edge' || github.ref_name }}
+          name: LuxMusic Edge
           prerelease: false
           make_latest: true
           target_commitish: ${{ github.sha }}
@@ -90,5 +82,5 @@ jobs:
           body: |
             APK assets:
             - `LuxMusic-<version>-arm64-v8a.apk`: signed arm64 release build with bundled update-safe keystore
-            - `versionCode` auto-increments on every workflow run, so edge releases install over previous ones
-            - `edge` rolling release is updated automatically on every push to `main`
+            - one workflow run and one release APK are produced for each commit pushed to `main`
+            - `versionCode` auto-increments, so edge releases install over previous ones

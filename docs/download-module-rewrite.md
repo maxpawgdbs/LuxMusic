@@ -26,6 +26,8 @@ This makes the workflow testable on the JVM without Android runtime dependencies
 - `YouTube`: direct extractor download via `yt-dlp`
 - `TikTok`: direct extractor download via `yt-dlp`
 - `SoundCloud`: direct extractor download via `yt-dlp`
+- other `http(s)` links: direct generic extraction through `yt-dlp`
+- `Spotify`, `Apple Music`, `Яндекс Музыка`, and `VK Музыка`: metadata lookup followed by a YouTube match (duration-checked when the source exposes duration)
 
 ## Libraries and APIs used
 
@@ -36,6 +38,7 @@ This makes the workflow testable on the JVM without Android runtime dependencies
 
 ## Notes
 
-- The supported download surface is intentionally narrow now: only `YouTube`, `TikTok`, and `SoundCloud`.
+- Direct downloads use audio-only formats and skip an extractor update on the successful fast path.
+- Extractors update to the latest nightly build only after a failed request, then retry once.
 - A YouTube session can still be attached to reduce `429` and similar rate-limit failures.
 - The test suite now verifies only the supported direct-download platforms plus explicit rejection of unsupported links.

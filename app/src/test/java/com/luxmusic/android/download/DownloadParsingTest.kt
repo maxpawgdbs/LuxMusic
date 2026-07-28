@@ -14,10 +14,27 @@ class DownloadParsingTest {
         assertEquals(DownloadService.YOUTUBE, DownloadParsing.detectService("https://youtu.be/demo"))
         assertEquals(DownloadService.TIKTOK, DownloadParsing.detectService("https://vt.tiktok.com/demo"))
         assertEquals(DownloadService.SOUNDCLOUD, DownloadParsing.detectService("https://soundcloud.com/artist/track"))
-        assertEquals(DownloadService.UNKNOWN, DownloadParsing.detectService("https://music.yandex.ru/album/1/track/2"))
-        assertEquals(DownloadService.UNKNOWN, DownloadParsing.detectService("https://open.spotify.com/track/abc"))
+        assertEquals(DownloadService.YANDEX_MUSIC, DownloadParsing.detectService("https://music.yandex.ru/album/1/track/2"))
+        assertEquals(DownloadService.VK_MUSIC, DownloadParsing.detectService("https://vk.com/audio"))
+        assertEquals(DownloadService.APPLE_MUSIC, DownloadParsing.detectService("https://music.apple.com/us/album/demo/1"))
+        assertEquals(DownloadService.SPOTIFY, DownloadParsing.detectService("https://open.spotify.com/track/abc"))
         assertEquals(DownloadService.YOUTUBE, DownloadParsing.detectService("ytsearch1:artist song"))
         assertEquals(DownloadService.UNKNOWN, DownloadParsing.detectService("https://example.com/track"))
+        assertEquals(DownloadService.UNKNOWN, DownloadParsing.detectService("https://example.com/?next=youtube.com"))
+    }
+
+    @Test
+    fun `normalizeUserInput extracts shared links and adds scheme`() {
+        assertEquals(
+            "https://youtu.be/demo",
+            DownloadParsing.normalizeUserInput("Послушай: https://youtu.be/demo!"),
+        )
+        assertEquals(
+            "https://soundcloud.com/artist/track",
+            DownloadParsing.normalizeUserInput("soundcloud.com/artist/track"),
+        )
+        assertTrue(DownloadParsing.isDownloadableUrl("https://example.com/track"))
+        assertFalse(DownloadParsing.isDownloadableUrl("not a link"))
     }
 
     @Test
@@ -124,7 +141,7 @@ class DownloadParsingTest {
             <html>
             <head>
             <meta property="og:title" content="Track Title" />
-            <meta property="og:description" content="Artist вЂў Album вЂ” Remaster" />
+            <meta property="og:description" content="Artist • Album — Remaster" />
             </head>
             </html>
         """.trimIndent()

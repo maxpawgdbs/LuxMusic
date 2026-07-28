@@ -11,7 +11,10 @@ internal class DownloadPlanner {
     ): DownloadPlan {
         val attempts = mutableListOf<DownloadAttempt>()
 
-        if (sourceService in DIRECT_DOWNLOAD_SERVICES) {
+        if (
+            sourceService in DIRECT_DOWNLOAD_SERVICES &&
+            (DownloadParsing.isDownloadableUrl(sourceUrl) || sourceUrl.startsWith("ytsearch", ignoreCase = true))
+        ) {
             attempts += DownloadAttempt(
                 requestUrl = sourceUrl,
                 requestService = sourceService,
@@ -57,16 +60,28 @@ internal class DownloadPlanner {
             DownloadService.YOUTUBE,
             DownloadService.TIKTOK,
             DownloadService.SOUNDCLOUD,
+            DownloadService.UNKNOWN,
         )
 
-        val YOUTUBE_FALLBACK_SERVICES = emptySet<DownloadService>()
+        val YOUTUBE_FALLBACK_SERVICES = setOf(
+            DownloadService.YANDEX_MUSIC,
+            DownloadService.VK_MUSIC,
+            DownloadService.APPLE_MUSIC,
+            DownloadService.SPOTIFY,
+        )
 
-        val METADATA_ONLY_SERVICES = emptySet<DownloadService>()
+        val METADATA_ONLY_SERVICES = setOf(
+            DownloadService.YANDEX_MUSIC,
+            DownloadService.VK_MUSIC,
+            DownloadService.APPLE_MUSIC,
+            DownloadService.SPOTIFY,
+        )
 
         val NIGHTLY_RETRY_SERVICES = setOf(
             DownloadService.YOUTUBE,
             DownloadService.TIKTOK,
             DownloadService.SOUNDCLOUD,
+            DownloadService.UNKNOWN,
         )
     }
 }

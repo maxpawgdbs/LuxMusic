@@ -70,6 +70,7 @@ internal fun LuxMusicRoot(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
+    onDownloadUrlChange: (String) -> Unit,
     onDownloadLink: (String) -> Unit,
     onCaptureDownloadAccount: (DownloadService, String?) -> Unit,
     onImportDownloadAccount: (DownloadService) -> Unit,
@@ -78,7 +79,6 @@ internal fun LuxMusicRoot(
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     var showCreatePlaylist by rememberSaveable { mutableStateOf(false) }
     var createPlaylistName by rememberSaveable { mutableStateOf("") }
-    var downloadUrl by rememberSaveable { mutableStateOf("") }
     var openedPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
     var playlistEditorId by rememberSaveable { mutableStateOf<String?>(null) }
     var lyricsTrack by remember { mutableStateOf<Track?>(null) }
@@ -217,9 +217,9 @@ internal fun LuxMusicRoot(
             LuxTab.DOWNLOAD -> {
                 LuxDownloadPage(
                     contentPadding = paddingValues,
-                    url = downloadUrl,
-                    onUrlChange = { downloadUrl = it },
-                    onDownload = { onDownloadLink(downloadUrl) },
+                    url = uiState.downloadUrl,
+                    onUrlChange = onDownloadUrlChange,
+                    onDownload = { onDownloadLink(uiState.downloadUrl) },
                     uiState = uiState,
                     onOpenDownloadAccountLogin = { loginService = it },
                     onImportDownloadAccount = onImportDownloadAccount,

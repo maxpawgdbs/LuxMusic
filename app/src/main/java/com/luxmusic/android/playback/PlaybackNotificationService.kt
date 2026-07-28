@@ -1,11 +1,13 @@
 package com.luxmusic.android.playback
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.widget.RemoteViews
@@ -27,6 +29,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @UnstableApi
 class PlaybackNotificationService : MediaSessionService() {
@@ -51,6 +54,11 @@ class PlaybackNotificationService : MediaSessionService() {
         flags: Int,
         startId: Int,
     ): Int {
+        if (intent?.action == ACTION_DISMISS) {
+            dismissNotificationAndStop()
+            return START_NOT_STICKY
+        }
+
         val controller = playbackController()
         when (intent?.action ?: ACTION_SYNC) {
             ACTION_TOGGLE_PLAYBACK -> controller.togglePlayback()
@@ -96,7 +104,11 @@ class PlaybackNotificationService : MediaSessionService() {
         val notification = buildNotification(snapshot, controller)
         if (startInForegroundRequired || snapshot.isPlaying) {
             startForegroundCompat(notification)
-        } else {
+        } else if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
             notificationManager.notify(NOTIFICATION_ID, notification)
         }
     }
@@ -156,9 +168,10 @@ class PlaybackNotificationService : MediaSessionService() {
             .setContentIntent(mainActivityPendingIntent())
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOnlyAlertOnce(true)
-            .setOngoing(true)
+            .setOngoing(snapshot.isPlaying)
+            .setSilent(true)
             .setColorized(true)
             .setColor(0xFF215EEA.toInt())
             .setShowWhen(false)
@@ -167,7 +180,7 @@ class PlaybackNotificationService : MediaSessionService() {
             .setProgress(maxProgress, progress, isIndeterminate)
             .setCustomContentView(compactRemoteViews)
             .setCustomBigContentView(expandedRemoteViews)
-            .setCustomHeadsUpContentView(expandedRemoteViews)
+            .setDeleteIntent(servicePendingIntent(ACTION_DISMISS, REQUEST_DISMISS))
             .addAction(action(ACTION_SKIP_PREVIOUS, REQUEST_PREVIOUS, android.R.drawable.ic_media_previous, R.string.notification_previous))
             .addAction(action(ACTION_SEEK_BACK, REQUEST_SEEK_BACK, android.R.drawable.ic_media_rew, R.string.notification_seek_back))
             .addAction(
@@ -181,7 +194,6 @@ class PlaybackNotificationService : MediaSessionService() {
             .addAction(action(ACTION_SEEK_FORWARD, REQUEST_SEEK_FORWARD, android.R.drawable.ic_media_ff, R.string.notification_seek_forward))
             .addAction(action(ACTION_SKIP_NEXT, REQUEST_NEXT, android.R.drawable.ic_media_next, R.string.notification_next))
             .setStyle(mediaStyle)
-            .setPublicVersion(publicNotification(snapshot, controller, progress, maxProgress, isIndeterminate))
             .build()
     }
 
@@ -224,6 +236,32 @@ class PlaybackNotificationService : MediaSessionService() {
     ): RemoteViews {
         return RemoteViews(packageName, layoutId).apply {
             setOnClickPendingIntent(R.id.notification_root, mainActivityPendingIntent())
+            setOnClickPendingIntent(
+                R.id.notification_previous,
+                servicePendingIntent(ACTION_SKIP_PREVIOUS, REQUEST_PREVIOUS),
+            )
+            setOnClickPendingIntent(
+                R.id.notification_toggle,
+                servicePendingIntent(ACTION_TOGGLE_PLAYBACK, REQUEST_TOGGLE_PLAYBACK),
+            )
+            setOnClickPendingIntent(
+                R.id.notification_next,
+                servicePendingIntent(ACTION_SKIP_NEXT, REQUEST_NEXT),
+            )
+            setImageViewResource(
+                R.id.notification_toggle,
+                if (snapshot.isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+            )
+            if (layoutId == R.layout.playback_notification_expanded) {
+                setOnClickPendingIntent(
+                    R.id.notification_seek_back,
+                    servicePendingIntent(ACTION_SEEK_BACK, REQUEST_SEEK_BACK),
+                )
+                setOnClickPendingIntent(
+                    R.id.notification_seek_forward,
+                    servicePendingIntent(ACTION_SEEK_FORWARD, REQUEST_SEEK_FORWARD),
+                )
+            }
             setTextViewText(R.id.notification_title, snapshot.title)
             setTextViewText(R.id.notification_details, snapshot.contentText)
             setTextViewText(R.id.notification_queue, snapshot.subText)
@@ -236,52 +274,6 @@ class PlaybackNotificationService : MediaSessionService() {
                 setImageViewResource(R.id.notification_artwork, android.R.drawable.ic_media_play)
             }
         }
-    }
-
-    private fun publicNotification(
-        snapshot: PlaybackNotificationSnapshot,
-        controller: PlaybackController,
-        progress: Int,
-        maxProgress: Int,
-        isIndeterminate: Boolean,
-    ): Notification {
-        val compactRemoteViews = compactRemoteViews(snapshot, progress, maxProgress, isIndeterminate)
-        val expandedRemoteViews = expandedRemoteViews(snapshot, progress, maxProgress, isIndeterminate)
-        return NotificationCompat.Builder(this, PLAYBACK_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(snapshot.title)
-            .setContentText(snapshot.contentText)
-            .setSubText(snapshot.subText)
-            .setContentIntent(mainActivityPendingIntent())
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .setColorized(true)
-            .setColor(0xFF215EEA.toInt())
-            .setLargeIcon(snapshot.artwork)
-            .setProgress(maxProgress, progress, isIndeterminate)
-            .setCustomContentView(compactRemoteViews)
-            .setCustomBigContentView(expandedRemoteViews)
-            .setCustomHeadsUpContentView(expandedRemoteViews)
-            .setStyle(
-                MediaStyleNotificationHelper.DecoratedMediaCustomViewStyle(controller.notificationMediaSession())
-                    .setShowActionsInCompactView(0, 2, 4),
-            )
-            .addAction(action(ACTION_SKIP_PREVIOUS, REQUEST_PREVIOUS, android.R.drawable.ic_media_previous, R.string.notification_previous))
-            .addAction(action(ACTION_SEEK_BACK, REQUEST_SEEK_BACK, android.R.drawable.ic_media_rew, R.string.notification_seek_back))
-            .addAction(
-                action(
-                    ACTION_TOGGLE_PLAYBACK,
-                    REQUEST_TOGGLE_PLAYBACK,
-                    if (snapshot.isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
-                    if (snapshot.isPlaying) R.string.notification_pause else R.string.notification_play,
-                ),
-            )
-            .addAction(action(ACTION_SEEK_FORWARD, REQUEST_SEEK_FORWARD, android.R.drawable.ic_media_ff, R.string.notification_seek_forward))
-            .addAction(action(ACTION_SKIP_NEXT, REQUEST_NEXT, android.R.drawable.ic_media_next, R.string.notification_next))
-            .build()
     }
 
     private fun action(
@@ -334,19 +326,21 @@ class PlaybackNotificationService : MediaSessionService() {
     }
 
     private fun ensureNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
         val manager = getSystemService(NotificationManager::class.java)
         manager.deleteNotificationChannel(LEGACY_PLAYBACK_CHANNEL_ID)
+        manager.deleteNotificationChannel(PREVIOUS_PLAYBACK_CHANNEL_ID)
         if (manager.getNotificationChannel(PLAYBACK_CHANNEL_ID) != null) return
 
         val channel = NotificationChannel(
             PLAYBACK_CHANNEL_ID,
             getString(R.string.playback_notification_channel_name),
-            NotificationManager.IMPORTANCE_HIGH,
+            NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = getString(R.string.playback_notification_channel_description)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
     }
@@ -364,23 +358,19 @@ class PlaybackNotificationService : MediaSessionService() {
     }
 
     private fun stopForegroundCompat(removeNotification: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(
-                if (removeNotification) {
-                    STOP_FOREGROUND_REMOVE
-                } else {
-                    STOP_FOREGROUND_DETACH
-                },
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(removeNotification)
-        }
+        stopForeground(
+            if (removeNotification) {
+                STOP_FOREGROUND_REMOVE
+            } else {
+                STOP_FOREGROUND_DETACH
+            },
+        )
     }
 
     companion object {
         private const val LEGACY_PLAYBACK_CHANNEL_ID = "luxmusic_playback"
-        private const val PLAYBACK_CHANNEL_ID = "luxmusic_playback_v3"
+        private const val PREVIOUS_PLAYBACK_CHANNEL_ID = "luxmusic_playback_v3"
+        private const val PLAYBACK_CHANNEL_ID = "luxmusic_playback_v4"
         private const val NOTIFICATION_ID = 1207
         private const val ACTION_SYNC = "com.luxmusic.android.playback.SYNC"
         private const val ACTION_TOGGLE_PLAYBACK = "com.luxmusic.android.playback.TOGGLE"
@@ -388,12 +378,14 @@ class PlaybackNotificationService : MediaSessionService() {
         private const val ACTION_SKIP_NEXT = "com.luxmusic.android.playback.NEXT"
         private const val ACTION_SEEK_BACK = "com.luxmusic.android.playback.SEEK_BACK"
         private const val ACTION_SEEK_FORWARD = "com.luxmusic.android.playback.SEEK_FORWARD"
+        private const val ACTION_DISMISS = "com.luxmusic.android.playback.DISMISS"
         private const val REQUEST_OPEN_APP = 1
         private const val REQUEST_PREVIOUS = 2
         private const val REQUEST_SEEK_BACK = 3
         private const val REQUEST_TOGGLE_PLAYBACK = 4
         private const val REQUEST_SEEK_FORWARD = 5
         private const val REQUEST_NEXT = 6
+        private const val REQUEST_DISMISS = 7
         private const val ACTIVE_REFRESH_MS = 1_000L
         private const val IDLE_REFRESH_MS = 2_000L
         @Volatile
@@ -405,9 +397,9 @@ class PlaybackNotificationService : MediaSessionService() {
             val minutes = (totalSeconds % 3_600) / 60
             val seconds = totalSeconds % 60
             return if (hours > 0) {
-                String.format("%d:%02d:%02d", hours, minutes, seconds)
+                String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds)
             } else {
-                String.format("%02d:%02d", minutes, seconds)
+                String.format(Locale.ROOT, "%02d:%02d", minutes, seconds)
             }
         }
 

@@ -2,7 +2,6 @@
     <string name="app_name">LuxMusic</string>
     <string name="playback_notification_channel_name">Воспроизведение LuxMusic</string>
     <string name="playback_notification_channel_description">Управление текущим треком и очередью воспроизведения</string>
-    <string name="notification_repeat_mode">Режим повтора</string>
     <string name="notification_play">Воспроизвести</string>
     <string name="notification_pause">Пауза</string>
     <string name="notification_previous">Предыдущий трек</string>

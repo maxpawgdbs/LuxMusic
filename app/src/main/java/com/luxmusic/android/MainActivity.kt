@@ -1,6 +1,7 @@
 package com.luxmusic.android
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlaybackNotificationService.markAppVisible()
+        handleIncomingIntent(intent)
         enableEdgeToEdge()
 
         setContent {
@@ -97,6 +99,7 @@ class MainActivity : ComponentActivity() {
                     onToggleShuffle = viewModel::toggleShuffle,
                     onCycleRepeat = viewModel::cycleRepeat,
                     onSeekToFraction = viewModel::seekToFraction,
+                    onDownloadUrlChange = viewModel::updateDownloadUrl,
                     onDownloadLink = viewModel::downloadFromLink,
                     onCaptureDownloadAccount = viewModel::captureDownloadAccountCookies,
                     onImportDownloadAccount = { service ->
@@ -113,5 +116,17 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        PlaybackNotificationService.markAppVisible()
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND || !intent.type.orEmpty().startsWith("text/")) return
+        viewModel.openSharedLink(intent.getStringExtra(Intent.EXTRA_TEXT))
     }
 }

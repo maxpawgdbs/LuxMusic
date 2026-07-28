@@ -2,6 +2,8 @@ package com.luxmusic.android.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Link
@@ -44,12 +47,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
@@ -61,6 +69,7 @@ import com.luxmusic.android.ui.theme.CloudWhite
 import com.luxmusic.android.ui.theme.MidnightBlue
 import com.luxmusic.android.ui.theme.SoftSand
 import com.luxmusic.android.ui.theme.SunsetOrange
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun HeroPlayerCard(
@@ -378,6 +387,11 @@ internal fun DownloadCard(
     onDownload: () -> Unit,
     uiState: LuxMusicUiState,
 ) {
+    val clipboard = LocalClipboard.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val canDownload = uiState.download.isAvailable && !uiState.download.isRunning && url.isNotBlank()
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(30.dp),
@@ -391,7 +405,7 @@ internal fun DownloadCard(
         ) {
             Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
             Text(
-                "LuxMusic сохраняет результат локально на устройстве. Используйте только ссылки на музыку, которую вы имеете право скачивать.",
+                "YouTube, TikTok, SoundCloud и другие площадки, поддерживаемые yt-dlp. Ссылки из музыкальных каталогов сопоставляются по названию и исполнителю.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -402,11 +416,38 @@ internal fun DownloadCard(
                 label = { Text("Ссылка") },
                 placeholder = { Text("https://...") },
                 leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                clipboard.getClipEntry()
+                                    ?.clipData
+                                    ?.takeIf { it.itemCount > 0 }
+                                    ?.getItemAt(0)
+                                    ?.coerceToText(context)
+                                    ?.toString()
+                                    ?.takeIf(String::isNotBlank)
+                                    ?.let(onUrlChange)
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Rounded.ContentPaste, contentDescription = "Вставить ссылку")
+                    }
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (canDownload) onDownload()
+                    },
+                ),
                 singleLine = true,
             )
             Button(
                 onClick = onDownload,
-                enabled = uiState.download.isAvailable && !uiState.download.isRunning && url.isNotBlank(),
+                enabled = canDownload,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.Download, contentDescription = null)

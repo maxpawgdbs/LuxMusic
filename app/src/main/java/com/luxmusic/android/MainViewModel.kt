@@ -10,6 +10,7 @@ import com.luxmusic.android.data.DownloadState
 import com.luxmusic.android.data.PlaybackState
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
+import com.luxmusic.android.download.DownloadParsing
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,6 +34,7 @@ data class LuxMusicUiState(
     val downloadAccounts: List<DownloadAccountState> = emptyList(),
     val selectedTab: LuxTab = LuxTab.HOME,
     val searchQuery: String = "",
+    val downloadUrl: String = "",
     val playback: PlaybackState = PlaybackState(),
     val currentTrack: Track? = null,
     val download: DownloadState = DownloadState(),
@@ -46,6 +48,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val linkDownloader = luxApp.linkDownloader
 
     private val searchQuery = MutableStateFlow("")
+    private val downloadUrl = MutableStateFlow("")
     private val selectedTab = MutableStateFlow(LuxTab.HOME)
     private val messagesFlow = MutableSharedFlow<String>()
 
@@ -87,6 +90,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             currentTrack = inputs.library.tracks.firstOrNull { it.id == inputs.playback.currentTrackId },
             download = inputs.download,
         )
+    }.combine(downloadUrl) { state, url ->
+        state.copy(downloadUrl = url)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -99,6 +104,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSearch(query: String) {
         searchQuery.value = query
+    }
+
+    fun updateDownloadUrl(url: String) {
+        downloadUrl.value = url
+    }
+
+    fun openSharedLink(sharedText: String?) {
+        val normalized = DownloadParsing.normalizeUserInput(sharedText.orEmpty())
+        if (!DownloadParsing.isDownloadableUrl(normalized)) return
+
+        downloadUrl.value = normalized
+        selectedTab.value = LuxTab.DOWNLOAD
     }
 
     fun importAudio(uris: List<Uri>) {
@@ -219,6 +236,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val result = linkDownloader.download(normalized)
             result.onSuccess { imported ->
+                downloadUrl.value = ""
                 selectedTab.value = LuxTab.LIBRARY
                 messagesFlow.emit("Скачано и сохранено ${imported.size} трек(ов).")
             }.onFailure { error ->

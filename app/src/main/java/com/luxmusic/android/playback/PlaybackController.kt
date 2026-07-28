@@ -321,9 +321,33 @@ class PlaybackController(context: Context) {
         }
         if (cachedNotificationArtworkPath != artworkPath) {
             cachedNotificationArtworkPath = artworkPath
-            cachedNotificationArtwork = runCatching { BitmapFactory.decodeFile(artworkPath) }.getOrNull()
+            cachedNotificationArtwork = decodeNotificationArtwork(artworkPath)
         }
         return cachedNotificationArtwork
+    }
+
+    private fun decodeNotificationArtwork(artworkPath: String): Bitmap? {
+        return runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(artworkPath, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+            var sampleSize = 1
+            while (
+                bounds.outWidth / sampleSize > MAX_NOTIFICATION_ARTWORK_PX ||
+                bounds.outHeight / sampleSize > MAX_NOTIFICATION_ARTWORK_PX
+            ) {
+                sampleSize *= 2
+            }
+
+            BitmapFactory.decodeFile(
+                artworkPath,
+                BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                },
+            )
+        }.getOrNull()
     }
 
     private fun trackDetails(track: Track): String {
@@ -372,6 +396,7 @@ class PlaybackController(context: Context) {
 
     private companion object {
         const val SEEK_INCREMENT_MS = 10_000L
+        const val MAX_NOTIFICATION_ARTWORK_PX = 256
         const val DEFAULT_QUEUE_TITLE = "Библиотека"
     }
 }
