@@ -1,50 +1,127 @@
 # LuxMusic
 
-[![Release APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml)
+[![Сборка APK](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml/badge.svg)](https://github.com/maxpawgdbs/LuxMusic/actions/workflows/release.yml)
+[![Последний релиз](https://img.shields.io/github/v/release/maxpawgdbs/LuxMusic?label=релиз)](https://github.com/maxpawgdbs/LuxMusic/releases/latest)
 
-Android music player with an offline-first local library, playlists, link downloads, and Media3 playback.
+LuxMusic — музыкальный плеер для Android с локальной офлайн-библиотекой, плейлистами, загрузкой музыки по ссылке и фоновым воспроизведением.
 
-## Current features
+Приложение рассчитано на простое управление собственной коллекцией: музыку можно импортировать с устройства или сохранить по ссылке, распределить по плейлистам и слушать без подключения к интернету.
 
-- Offline local library stored inside the app sandbox.
-- Artist grouping with dedicated artist pages.
-- Playlist management.
-- Shuffle, repeat-all, and repeat-one playback modes.
-- Persistent background playback with MediaSession controls and restored queue state.
-- Fast audio-only link downloads through `yt-dlp` for YouTube, TikTok, SoundCloud, and other supported sites.
-- Metadata-based matching for Spotify, Apple Music, Яндекс Музыка, and VK Музыка links.
-- Foreground media playback notification with progress bar and transport controls.
-- Jetpack Compose UI on Material 3.
+## Возможности
 
-## Stack
+### Воспроизведение
+
+- Воспроизведение музыки в фоне, в том числе после закрытия приложения.
+- Продолжение музыки до явной остановки пользователем или перехвата звука другим приложением.
+- Сохранение текущей песни, очереди, позиции и режима воспроизведения между запусками.
+- Перемотка, переход к предыдущей и следующей песне.
+- Перемешивание очереди.
+- Повтор всей очереди или одной песни.
+- Отдельный экран очереди с обложками, названиями и исполнителями.
+- Быстрое переключение на любую песню из очереди.
+- Отображение источника воспроизведения: библиотека, артист или название плейлиста.
+
+### Медиауведомление
+
+- Управление воспроизведением из системного уведомления и с экрана блокировки.
+- Кнопки паузы, продолжения, предыдущей и следующей песни.
+- Перемотка на 10 секунд назад и вперёд.
+- Ползунок текущей позиции.
+- Обложка, название песни, исполнитель и источник воспроизведения.
+- Отдельная кнопка полной остановки фонового воспроизведения.
+
+### Библиотека
+
+- Локальное хранение музыки внутри приложения.
+- Импорт аудиофайлов с устройства.
+- Поиск по названию, исполнителю и альбому.
+- Редактирование названия песни и имени исполнителя.
+- Отображение встроенной обложки и текста песни, если они присутствуют в файле.
+- Плавная прокрутка длинных названий без обрезания.
+- Подсветка песни, которая играет в данный момент.
+- Удаление песни с устройства через контекстное меню.
+- Статистика количества песен и плейлистов.
+
+### Артисты
+
+- Автоматическая группировка библиотеки по исполнителям.
+- Отдельный раздел со списком артистов.
+- Страница артиста со всеми его песнями.
+- Запуск очереди непосредственно из коллекции выбранного исполнителя.
+
+### Плейлисты
+
+- Создание, переименование и удаление плейлистов.
+- Добавление одной или нескольких песен.
+- Удаление песни только из плейлиста без удаления аудиофайла.
+- Полное управление песней из контекстного меню внутри плейлиста.
+- Автоматическая обложка плейлиста на основе входящих в него песен.
+- Подсветка активного плейлиста и текущей песни внутри него.
+- Запуск всего плейлиста или выбранной песни.
+
+### Загрузка музыки
+
+- Сохранение аудио по ссылкам с YouTube, TikTok, SoundCloud и других площадок, поддерживаемых `yt-dlp`.
+- Сопоставление ссылок Spotify, Apple Music, Яндекс Музыки и VK Музыки с доступной офлайн-копией по метаданным.
+- Возможность задать собственное название песни перед скачиванием.
+- Автоматическое извлечение названия, исполнителя, альбома, длительности, обложки и текста при их наличии.
+- Автоматический импорт скачанного файла в локальную библиотеку.
+- Отображение прогресса и понятного результата загрузки.
+
+> Доступность скачивания зависит от площадки, конкретной ссылки и изменений на стороне сервиса. Сохраняйте только тот контент, на загрузку которого у вас есть право.
+
+## Системные требования
+
+- Android 8.0 или новее.
+- Устройство с архитектурой ARM64 или ARMv7.
+- Доступ к интернету нужен только для загрузки музыки по ссылке. Импортированные и сохранённые песни воспроизводятся офлайн.
+
+## Установка
+
+1. Откройте раздел [Releases](https://github.com/maxpawgdbs/LuxMusic/releases/latest).
+2. Скачайте файл `LuxMusic-<версия>-universal.apk`.
+3. Разрешите установку приложений из выбранного браузера или файлового менеджера.
+4. Откройте APK и установите LuxMusic.
+
+Обновления, подписанные тем же сертификатом, устанавливаются поверх предыдущей версии с сохранением локальной библиотеки.
+
+## Конфиденциальность и хранение
+
+- Библиотека, плейлисты и обложки хранятся локально в закрытом каталоге приложения.
+- Для прослушивания уже добавленной музыки аккаунт и подключение к интернету не требуются.
+- При удалении приложения Android также удалит библиотеку, сохранённую внутри его каталога. Перед удалением приложения сохраните важные исходные файлы отдельно.
+
+## Технологии
 
 - Kotlin
-- Jetpack Compose
-- Media3 ExoPlayer
+- Jetpack Compose и Material 3
+- Media3 ExoPlayer и MediaSession
 - `io.github.junkfood02.youtubedl-android`
+- R8 и оптимизация ресурсов для release-сборок
 
-## CI/CD
+## Сборка проекта
 
-- Commits pushed to `main` update the prerelease `edge` build.
-- Version tags publish a stable GitHub Release.
-- Every workflow run tests the app, runs release lint, and builds one signed ARM universal APK.
+Понадобятся JDK 17 и Android SDK Platform 36.
 
-## Stable APK updates
+```powershell
+.\gradlew.bat offlineUnitTest lintRelease assembleRelease
+```
 
-- GitHub Releases publish a signed ARM64/ARMv7 `LuxMusic-<version>-universal.apk` built with the bundled keystore at `signing/luxmusic-dev.jks`.
-- Release workflow auto-increments `versionCode`, so every new `edge` build can be installed over the previous one without deleting the app and its local database.
-- The base app version is tracked through `luxmusic.baseVersion` in `gradle.properties`.
-- If you replace `signing/luxmusic-dev.jks` with another certificate, Android will require one reinstall. After that, updates will continue only between builds signed with the new certificate.
+Готовый универсальный APK появится по пути:
 
-## Important notes
+```text
+app/build/outputs/apk/release/app-universal-release.apk
+```
 
-- The current downloader stack depends on a GPL component. Replace it before shipping a proprietary distribution.
-- Download only content you have the right to store offline.
+## Выпуск обновлений
 
-## Local setup
+- Push в `main` обновляет тестовый prerelease `edge`.
+- Тег формата `v0.4.2` создаёт отдельный стабильный GitHub Release.
+- Перед публикацией CI запускает тесты, release-lint и собирает подписанный универсальный APK для ARM64/ARMv7.
+- Базовая версия приложения задаётся свойством `luxmusic.baseVersion` в `gradle.properties`.
 
-1. Install Android Studio with JDK 17+.
-2. Install Android SDK Platform 36.
-3. Open the project in Android Studio.
-4. Let Gradle sync finish.
-5. Run the `app` target on a device or emulator with Android 8.0+.
+## Лицензии и важные замечания
+
+Модуль загрузки использует GPL-компонент `youtubedl-android`. Это необходимо учитывать при распространении приложения и выборе лицензии проекта.
+
+LuxMusic не предоставляет права на сторонний контент и не обходит требования правообладателей. Пользователь самостоятельно отвечает за законность сохраняемых материалов.
