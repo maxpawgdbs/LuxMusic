@@ -66,6 +66,7 @@ class PlaybackController(
 
     private var currentQueue: List<Track> = emptyList()
     private var currentQueueTitle: String = DEFAULT_QUEUE_TITLE
+    private var currentPlaylistId: String? = null
     private var cachedNotificationArtworkPath: String? = null
     private var cachedNotificationArtwork: Bitmap? = null
     private var playbackForegroundServiceActive = false
@@ -100,24 +101,39 @@ class PlaybackController(
         }
     }
 
-    fun playCollection(tracks: List<Track>, startIndex: Int, queueTitle: String) {
-        playOrToggleCollection(tracks, startIndex, queueTitle)
+    fun playCollection(
+        tracks: List<Track>,
+        startIndex: Int,
+        queueTitle: String,
+        playlistId: String? = null,
+    ) {
+        playOrToggleCollection(tracks, startIndex, queueTitle, playlistId)
     }
 
-    fun playOrToggleCollection(tracks: List<Track>, startIndex: Int, queueTitle: String) {
+    fun playOrToggleCollection(
+        tracks: List<Track>,
+        startIndex: Int,
+        queueTitle: String,
+        playlistId: String? = null,
+    ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
 
         val sameQueue = currentQueue.map(Track::id) == tracks.map(Track::id)
         val selectedTrack = tracks[startIndex]
         val currentTrackId = player.currentMediaItem?.mediaId
 
-        if (sameQueue && currentTrackId == selectedTrack.id) {
-            togglePlayback()
-            return
-        }
-
         currentQueue = tracks
         currentQueueTitle = queueTitle
+        currentPlaylistId = playlistId
+
+        if (sameQueue && currentTrackId == selectedTrack.id) {
+            if (player.playbackState == Player.STATE_ENDED) {
+                player.seekTo(startIndex, 0L)
+            }
+            player.play()
+            publishState()
+            return
+        }
 
         if (sameQueue && player.mediaItemCount == tracks.size) {
             player.seekTo(startIndex, 0L)
@@ -242,11 +258,18 @@ class PlaybackController(
         publishState()
     }
 
+    fun clearActivePlaylist(playlistId: String) {
+        if (currentPlaylistId != playlistId) return
+        currentPlaylistId = null
+        publishState()
+    }
+
     fun stopPlayback() {
         player.stop()
         player.clearMediaItems()
         currentQueue = emptyList()
         currentQueueTitle = DEFAULT_QUEUE_TITLE
+        currentPlaylistId = null
         playbackPreferences.edit().clear().apply()
         lastPersistedState = null
         publishState()
@@ -267,6 +290,7 @@ class PlaybackController(
 
         if (currentQueue.isEmpty()) {
             currentQueueTitle = DEFAULT_QUEUE_TITLE
+            currentPlaylistId = null
             player.stop()
             player.clearMediaItems()
         }
@@ -311,6 +335,7 @@ class PlaybackController(
             currentTrackId = player.currentMediaItem?.mediaId,
             queueTrackIds = currentQueue.map(Track::id),
             queueTitle = currentQueueTitle,
+            activePlaylistId = currentPlaylistId,
             isPlaying = player.isPlaying,
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = when (player.repeatMode) {
@@ -396,6 +421,7 @@ class PlaybackController(
         currentQueueTitle = playbackPreferences.getString(KEY_QUEUE_TITLE, DEFAULT_QUEUE_TITLE)
             .orEmpty()
             .ifBlank { DEFAULT_QUEUE_TITLE }
+        currentPlaylistId = playbackPreferences.getString(KEY_PLAYLIST_ID, null)
         val savedTrackId = playbackPreferences.getString(KEY_CURRENT_TRACK_ID, null)
         val startIndex = restoredQueue.indexOfFirst { it.id == savedTrackId }.coerceAtLeast(0)
         val positionMs = playbackPreferences.getLong(KEY_POSITION_MS, 0L).coerceAtLeast(0L)
@@ -422,6 +448,7 @@ class PlaybackController(
         val persistedState = PersistedPlaybackState(
             queueIds = currentQueue.map(Track::id),
             queueTitle = currentQueueTitle,
+            playlistId = currentPlaylistId,
             currentTrackId = player.currentMediaItem?.mediaId,
             positionBucket = player.currentPosition.coerceAtLeast(0L) / PERSIST_POSITION_INTERVAL_MS,
             playWhenReady = player.playWhenReady,
@@ -433,6 +460,7 @@ class PlaybackController(
         playbackPreferences.edit()
             .putString(KEY_QUEUE_IDS, persistedState.queueIds.joinToString(","))
             .putString(KEY_QUEUE_TITLE, persistedState.queueTitle)
+            .putString(KEY_PLAYLIST_ID, persistedState.playlistId)
             .putString(KEY_CURRENT_TRACK_ID, persistedState.currentTrackId)
             .putLong(KEY_POSITION_MS, player.currentPosition.coerceAtLeast(0L))
             .putBoolean(KEY_PLAY_WHEN_READY, persistedState.playWhenReady)
@@ -520,6 +548,7 @@ class PlaybackController(
     private data class PersistedPlaybackState(
         val queueIds: List<String>,
         val queueTitle: String,
+        val playlistId: String?,
         val currentTrackId: String?,
         val positionBucket: Long,
         val playWhenReady: Boolean,
@@ -535,6 +564,7 @@ class PlaybackController(
         const val PLAYBACK_PREFERENCES = "luxmusic_playback_state"
         const val KEY_QUEUE_IDS = "queue_ids"
         const val KEY_QUEUE_TITLE = "queue_title"
+        const val KEY_PLAYLIST_ID = "playlist_id"
         const val KEY_CURRENT_TRACK_ID = "current_track_id"
         const val KEY_POSITION_MS = "position_ms"
         const val KEY_PLAY_WHEN_READY = "play_when_ready"

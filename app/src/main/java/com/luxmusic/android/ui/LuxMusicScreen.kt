@@ -31,7 +31,8 @@ fun LuxMusicScreen(
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
-    onDownloadLink: (String) -> Unit,
+    onDownloadTitleChange: (String) -> Unit,
+    onDownloadLink: (String, String) -> Unit,
 ) {
     LuxMusicRoot(
         uiState = uiState,
@@ -58,6 +59,7 @@ fun LuxMusicScreen(
         onCycleRepeat = onCycleRepeat,
         onSeekToFraction = onSeekToFraction,
         onDownloadUrlChange = onDownloadUrlChange,
+        onDownloadTitleChange = onDownloadTitleChange,
         onDownloadLink = onDownloadLink,
     )
 }

@@ -23,7 +23,6 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Subtitles
@@ -39,7 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,7 +61,6 @@ internal fun LuxLibraryPage(
     query: String,
     tracks: List<Track>,
     currentTrackId: String?,
-    isPlaying: Boolean,
     librarySize: Int,
     playlistCount: Int,
     onQueryChange: (String) -> Unit,
@@ -181,19 +179,6 @@ internal fun LuxLibraryPage(
                                 onDismissRequest = { menuExpanded = false },
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(if (isCurrent && isPlaying) "Пауза" else "Воспроизвести") },
-                                    leadingIcon = {
-                                        Icon(
-                                            if (isCurrent && isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onPlay(track.id)
-                                    },
-                                )
-                                DropdownMenuItem(
                                     text = { Text("Изменить") },
                                     leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
                                     onClick = {
@@ -249,6 +234,7 @@ internal fun LuxPlaylistsPage(
     contentPadding: PaddingValues,
     playlists: List<Playlist>,
     tracksById: Map<String, Track>,
+    activePlaylistId: String?,
     onOpenPlaylist: (String) -> Unit,
     onPlayPlaylist: (String) -> Unit,
     onCreatePlaylist: () -> Unit,
@@ -266,6 +252,7 @@ internal fun LuxPlaylistsPage(
             }
         } else {
             items(playlists, key = Playlist::id) { playlist ->
+                val isActive = playlist.id == activePlaylistId
                 val tracks = remember(playlist.trackIds, tracksById) {
                     playlist.trackIds.mapNotNull(tracksById::get)
                 }
@@ -273,7 +260,18 @@ internal fun LuxPlaylistsPage(
 
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = luxCardColors(),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = if (isActive) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        contentColor = if (isActive) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    ),
                     onClick = { onOpenPlaylist(playlist.id) },
                 ) {
                     Row(
@@ -332,10 +330,13 @@ internal fun LuxPlaylistDetailPage(
     playlist: Playlist,
     tracks: List<Track>,
     currentTrackId: String?,
-    isPlaying: Boolean,
     onPlayPlaylist: () -> Unit,
     onPlayTrack: (String) -> Unit,
+    onShowLyrics: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onEdit: (Track) -> Unit,
     onRemoveTrack: (String) -> Unit,
+    onDeleteTrack: (Track) -> Unit,
     onAddTracks: () -> Unit,
     onDeletePlaylist: () -> Unit,
 ) {
@@ -389,15 +390,18 @@ internal fun LuxPlaylistDetailPage(
                         ) {
                             Icon(Icons.Rounded.PlayArrow, contentDescription = "Играть")
                         }
-                        OutlinedButton(onClick = onAddTracks) {
-                            Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Добавить")
+                        OutlinedIconButton(onClick = onAddTracks) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                contentDescription = "Добавить треки",
+                            )
                         }
-                        OutlinedButton(onClick = onDeletePlaylist) {
-                            Icon(Icons.Rounded.DeleteOutline, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Удалить")
+                        OutlinedIconButton(onClick = onDeletePlaylist) {
+                            Icon(
+                                Icons.Rounded.DeleteOutline,
+                                contentDescription = "Удалить плейлист",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }
@@ -465,16 +469,31 @@ internal fun LuxPlaylistDetailPage(
                                 onDismissRequest = { menuExpanded = false },
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(if (isCurrent && isPlaying) "Пауза" else "Воспроизвести") },
+                                    text = { Text("Изменить") },
+                                    leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onEdit(track)
+                                    },
+                                )
+                                if (!track.lyrics.isNullOrBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Текст песни") },
+                                        leadingIcon = { Icon(Icons.Rounded.Subtitles, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onShowLyrics(track)
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Добавить в плейлист") },
                                     leadingIcon = {
-                                        Icon(
-                                            if (isCurrent && isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                            contentDescription = null,
-                                        )
+                                        Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
                                     },
                                     onClick = {
                                         menuExpanded = false
-                                        onPlayTrack(track.id)
+                                        onAddToPlaylist(track)
                                     },
                                 )
                                 DropdownMenuItem(
@@ -489,6 +508,20 @@ internal fun LuxPlaylistDetailPage(
                                     onClick = {
                                         menuExpanded = false
                                         onRemoveTrack(track.id)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Удалить с устройства") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Rounded.DeleteOutline,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDeleteTrack(track)
                                     },
                                 )
                             }
@@ -730,6 +763,8 @@ internal fun LuxDownloadPage(
     contentPadding: PaddingValues,
     url: String,
     onUrlChange: (String) -> Unit,
+    title: String,
+    onTitleChange: (String) -> Unit,
     onImportClick: () -> Unit,
     onDownload: () -> Unit,
     uiState: LuxMusicUiState,
@@ -769,6 +804,15 @@ internal fun LuxDownloadPage(
                         label = { Text("Ссылка") },
                         placeholder = { Text("https://...") },
                         leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
+                        enabled = !uiState.download.isRunning,
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = onTitleChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Название песни (необязательно)") },
+                        enabled = !uiState.download.isRunning,
                         singleLine = true,
                     )
                     Button(

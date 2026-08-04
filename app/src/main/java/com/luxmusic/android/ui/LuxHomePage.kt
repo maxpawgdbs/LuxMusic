@@ -6,14 +6,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -23,7 +20,6 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,7 +40,6 @@ import com.luxmusic.android.data.Track
 internal fun LuxHomePage(
     contentPadding: PaddingValues,
     uiState: LuxMusicUiState,
-    onOpenQueue: () -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -66,18 +61,6 @@ internal fun LuxHomePage(
                 onCycleRepeat = onCycleRepeat,
                 onSeekToFraction = onSeekToFraction,
             )
-        }
-        item {
-            FilledTonalButton(
-                onClick = onOpenQueue,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.playback.queueTrackIds.isNotEmpty(),
-                colors = luxTonalButtonColors(),
-            ) {
-                Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Очередь · ${uiState.playback.queueTrackIds.size}")
-            }
         }
     }
 }
@@ -104,12 +87,6 @@ private fun LuxPlayerCard(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                text = "Сейчас играет",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-
             if (currentTrack == null) {
                 Text("Выберите трек в библиотеке", style = MaterialTheme.typography.headlineSmall)
             } else {
@@ -172,7 +149,7 @@ private fun LuxPlayerCard(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     FilledTonalIconButton(
@@ -185,30 +162,6 @@ private fun LuxPlayerCard(
                     ) {
                         Icon(Icons.Rounded.Shuffle, contentDescription = "Перемешать")
                     }
-                    FilledTonalIconButton(
-                        onClick = onCycleRepeat,
-                        colors = if (uiState.playback.repeatMode != RepeatMode.NONE) {
-                            luxFilledIconButtonColors()
-                        } else {
-                            luxTonalIconButtonColors()
-                        },
-                    ) {
-                        Icon(
-                            if (uiState.playback.repeatMode == RepeatMode.ONE) {
-                                Icons.Rounded.RepeatOne
-                            } else {
-                                Icons.Rounded.Repeat
-                            },
-                            contentDescription = repeatLabel(uiState.playback.repeatMode),
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
                     FilledTonalIconButton(
                         onClick = onSkipPrevious,
                         colors = luxTonalIconButtonColors(),
@@ -229,6 +182,23 @@ private fun LuxPlayerCard(
                         colors = luxTonalIconButtonColors(),
                     ) {
                         Icon(Icons.Rounded.SkipNext, contentDescription = "Следующий")
+                    }
+                    FilledTonalIconButton(
+                        onClick = onCycleRepeat,
+                        colors = if (uiState.playback.repeatMode != RepeatMode.NONE) {
+                            luxFilledIconButtonColors()
+                        } else {
+                            luxTonalIconButtonColors()
+                        },
+                    ) {
+                        Icon(
+                            if (uiState.playback.repeatMode == RepeatMode.ONE) {
+                                Icons.Rounded.RepeatOne
+                            } else {
+                                Icons.Rounded.Repeat
+                            },
+                            contentDescription = repeatLabel(uiState.playback.repeatMode),
+                        )
                     }
                 }
             }

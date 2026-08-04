@@ -36,6 +36,7 @@ data class LuxMusicUiState(
     val selectedTab: LuxTab = LuxTab.HOME,
     val searchQuery: String = "",
     val downloadUrl: String = "",
+    val downloadTitle: String = "",
     val playback: PlaybackState = PlaybackState(),
     val currentTrack: Track? = null,
     val download: DownloadState = DownloadState(),
@@ -50,6 +51,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val searchQuery = MutableStateFlow("")
     private val downloadUrl = MutableStateFlow("")
+    private val downloadTitle = MutableStateFlow("")
     private val selectedTab = MutableStateFlow(LuxTab.HOME)
     private val messagesFlow = MutableSharedFlow<String>()
 
@@ -93,6 +95,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.combine(downloadUrl) { state, url ->
         state.copy(downloadUrl = url)
+    }.combine(downloadTitle) { state, title ->
+        state.copy(downloadTitle = title)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -111,11 +115,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         downloadUrl.value = url
     }
 
+    fun updateDownloadTitle(title: String) {
+        downloadTitle.value = title
+    }
+
     fun openSharedLink(sharedText: String?) {
         val normalized = DownloadParsing.normalizeUserInput(sharedText.orEmpty())
         if (!DownloadParsing.isDownloadableUrl(normalized)) return
 
         downloadUrl.value = normalized
+        downloadTitle.value = ""
         selectedTab.value = LuxTab.DOWNLOAD
     }
 
@@ -188,6 +197,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deletePlaylist(playlistId: String) {
         viewModelScope.launch {
             val removed = libraryStore.deletePlaylist(playlistId)
+            if (removed != null) {
+                playbackController.clearActivePlaylist(playlistId)
+            }
             messagesFlow.emit(
                 if (removed != null) {
                     "Плейлист \"${removed.name}\" удален."
@@ -239,7 +251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val tracksById = uiState.value.library.associateBy { it.id }
         val queue = playlist.trackIds.mapNotNull(tracksById::get)
         if (queue.isNotEmpty()) {
-            playbackController.playOrToggleCollection(queue, 0, playlist.name)
+            playbackController.playOrToggleCollection(queue, 0, playlist.name, playlist.id)
         }
     }
 
@@ -249,7 +261,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val queue = playlist.trackIds.mapNotNull(tracksById::get)
         val startIndex = queue.indexOfFirst { it.id == trackId }
         if (startIndex >= 0) {
-            playbackController.playOrToggleCollection(queue, startIndex, playlist.name)
+            playbackController.playOrToggleCollection(queue, startIndex, playlist.name, playlist.id)
         }
     }
 
@@ -275,14 +287,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectQueueTrack(trackId: String) = playbackController.selectQueueTrack(trackId)
 
-    fun downloadFromLink(url: String) {
+    fun downloadFromLink(url: String, title: String) {
         val normalized = url.trim()
+        val customTitle = title.trim()
         if (normalized.isBlank()) return
 
         viewModelScope.launch {
             val result = linkDownloader.download(normalized)
             result.onSuccess { imported ->
+                if (customTitle.isNotBlank()) {
+                    imported.forEach { track ->
+                        libraryStore.updateTrackDetails(track.id, customTitle, track.artist)
+                    }
+                }
                 downloadUrl.value = ""
+                downloadTitle.value = ""
                 selectedTab.value = LuxTab.LIBRARY
                 messagesFlow.emit("Скачано и сохранено ${imported.size} трек(ов).")
             }.onFailure { error ->

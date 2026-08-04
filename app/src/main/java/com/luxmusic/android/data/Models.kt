@@ -35,6 +35,7 @@ data class PlaybackState(
     val currentTrackId: String? = null,
     val queueTrackIds: List<String> = emptyList(),
     val queueTitle: String = "Библиотека",
+    val activePlaylistId: String? = null,
     val isPlaying: Boolean = false,
     val shuffleEnabled: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.NONE,

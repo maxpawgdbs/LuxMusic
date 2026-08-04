@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
                     onCycleRepeat = viewModel::cycleRepeat,
                     onSeekToFraction = viewModel::seekToFraction,
                     onDownloadUrlChange = viewModel::updateDownloadUrl,
+                    onDownloadTitleChange = viewModel::updateDownloadTitle,
                     onDownloadLink = viewModel::downloadFromLink,
                 )
             }

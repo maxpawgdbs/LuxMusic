@@ -76,7 +76,8 @@ internal fun LuxMusicRoot(
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
-    onDownloadLink: (String) -> Unit,
+    onDownloadTitleChange: (String) -> Unit,
+    onDownloadLink: (String, String) -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
@@ -134,14 +135,14 @@ internal fun LuxMusicRoot(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Text(
-                        when {
-                            showQueue -> "Очередь"
-                            openedPlaylist != null -> openedPlaylist.name
-                            openedArtistName != null -> openedArtistName.orEmpty()
-                            else -> uiState.selectedTab.title()
-                        },
-                    )
+                    val title = when {
+                        showQueue -> "Очередь"
+                        openedPlaylist != null -> openedPlaylist.name
+                        openedArtistName != null -> openedArtistName.orEmpty()
+                        uiState.selectedTab == LuxTab.HOME -> ""
+                        else -> uiState.selectedTab.title()
+                    }
+                    if (title.isNotEmpty()) Text(title)
                 },
                 navigationIcon = {
                     if (
@@ -163,7 +164,17 @@ internal fun LuxMusicRoot(
                     }
                 },
                 actions = {
-                    if (!showQueue && openedPlaylist != null) {
+                    if (!showQueue && uiState.selectedTab == LuxTab.HOME) {
+                        IconButton(
+                            onClick = { showQueue = true },
+                            enabled = uiState.playback.queueTrackIds.isNotEmpty(),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.QueueMusic,
+                                contentDescription = "Открыть очередь",
+                            )
+                        }
+                    } else if (!showQueue && openedPlaylist != null) {
                         IconButton(
                             onClick = {
                                 playlistToRename = openedPlaylist
@@ -219,7 +230,6 @@ internal fun LuxMusicRoot(
                     LuxHomePage(
                         contentPadding = paddingValues,
                         uiState = uiState,
-                        onOpenQueue = { showQueue = true },
                         onTogglePlayback = onTogglePlayback,
                         onSkipPrevious = onSkipPrevious,
                         onSkipNext = onSkipNext,
@@ -235,7 +245,6 @@ internal fun LuxMusicRoot(
                         query = uiState.searchQuery,
                         tracks = uiState.visibleTracks,
                         currentTrackId = uiState.currentTrack?.id,
-                        isPlaying = uiState.playback.isPlaying,
                         librarySize = uiState.library.size,
                         playlistCount = uiState.playlists.size,
                         onQueryChange = onSearchChange,
@@ -277,12 +286,19 @@ internal fun LuxMusicRoot(
                             playlist = openedPlaylist,
                             tracks = openedPlaylist.trackIds.mapNotNull(tracksById::get),
                             currentTrackId = uiState.currentTrack?.id,
-                            isPlaying = uiState.playback.isPlaying,
                             onPlayPlaylist = { onPlayPlaylist(openedPlaylist.id) },
                             onPlayTrack = { trackId -> onPlayPlaylistTrack(openedPlaylist.id, trackId) },
+                            onShowLyrics = { lyricsTrack = it },
+                            onAddToPlaylist = { playlistTargetTrack = it },
+                            onEdit = { track ->
+                                editTargetTrack = track
+                                editTitle = track.title
+                                editArtist = track.artist
+                            },
                             onRemoveTrack = { trackId ->
                                 onRemoveTrackFromPlaylist(openedPlaylist.id, trackId)
                             },
+                            onDeleteTrack = { deleteTargetTrack = it },
                             onAddTracks = { playlistEditorId = openedPlaylist.id },
                             onDeletePlaylist = { deleteTargetPlaylist = openedPlaylist },
                         )
@@ -291,6 +307,7 @@ internal fun LuxMusicRoot(
                             contentPadding = paddingValues,
                             playlists = uiState.playlists,
                             tracksById = tracksById,
+                            activePlaylistId = uiState.playback.activePlaylistId,
                             onOpenPlaylist = { openedPlaylistId = it },
                             onPlayPlaylist = onPlayPlaylist,
                             onCreatePlaylist = { showCreatePlaylist = true },
@@ -303,8 +320,12 @@ internal fun LuxMusicRoot(
                         contentPadding = paddingValues,
                         url = uiState.downloadUrl,
                         onUrlChange = onDownloadUrlChange,
+                        title = uiState.downloadTitle,
+                        onTitleChange = onDownloadTitleChange,
                         onImportClick = onImportClick,
-                        onDownload = { onDownloadLink(uiState.downloadUrl) },
+                        onDownload = {
+                            onDownloadLink(uiState.downloadUrl, uiState.downloadTitle)
+                        },
                         uiState = uiState,
                     )
                 }
