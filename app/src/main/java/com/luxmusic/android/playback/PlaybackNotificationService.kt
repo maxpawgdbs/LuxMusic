@@ -54,8 +54,10 @@ class PlaybackNotificationService : MediaSessionService() {
         flags: Int,
         startId: Int,
     ): Int {
-        if (intent?.action == ACTION_DISMISS) {
+        if (intent?.action == ACTION_STOP) {
+            playbackController().stopPlayback()
             dismissNotificationAndStop()
+            stopSelf()
             return START_NOT_STICKY
         }
 
@@ -73,16 +75,12 @@ class PlaybackNotificationService : MediaSessionService() {
         val result = super.onStartCommand(intent, flags, startId)
         ensureRefreshLoop()
         triggerNotificationUpdate()
-        return result
+        return if (controller.notificationSnapshot() != null) START_STICKY else result
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        markAppClosed()
-        val snapshot = playbackController().notificationSnapshot()
-        if (snapshot == null || !snapshot.isPlaying) {
-            dismissNotificationAndStop()
-        }
+        triggerNotificationUpdate()
     }
 
     override fun onUpdateNotification(
@@ -92,11 +90,6 @@ class PlaybackNotificationService : MediaSessionService() {
         val controller = playbackController()
         val snapshot = controller.notificationSnapshot()
         if (snapshot == null) {
-            dismissNotificationAndStop()
-            return
-        }
-
-        if (isAppClosed() && !snapshot.isPlaying) {
             dismissNotificationAndStop()
             return
         }
@@ -115,6 +108,7 @@ class PlaybackNotificationService : MediaSessionService() {
 
     override fun onDestroy() {
         refreshJob?.cancel()
+        playbackController().onNotificationServiceStopped()
         removeSession(playbackController().notificationMediaSession())
         dismissNotificationAndStop()
         scope.cancel()
@@ -155,7 +149,7 @@ class PlaybackNotificationService : MediaSessionService() {
             .coerceAtMost(maxProgress.toLong())
             .toInt()
         val isIndeterminate = maxProgress <= 0
-        val mediaStyle = MediaStyleNotificationHelper.DecoratedMediaCustomViewStyle(controller.notificationMediaSession())
+        val mediaStyle = MediaStyleNotificationHelper.MediaStyle(controller.notificationMediaSession())
             .setShowActionsInCompactView(0, 2, 4)
         val compactRemoteViews = compactRemoteViews(snapshot, progress, maxProgress, isIndeterminate)
         val expandedRemoteViews = expandedRemoteViews(snapshot, progress, maxProgress, isIndeterminate)
@@ -180,7 +174,7 @@ class PlaybackNotificationService : MediaSessionService() {
             .setProgress(maxProgress, progress, isIndeterminate)
             .setCustomContentView(compactRemoteViews)
             .setCustomBigContentView(expandedRemoteViews)
-            .setDeleteIntent(servicePendingIntent(ACTION_DISMISS, REQUEST_DISMISS))
+            .setDeleteIntent(servicePendingIntent(ACTION_STOP, REQUEST_STOP))
             .addAction(action(ACTION_SKIP_PREVIOUS, REQUEST_PREVIOUS, android.R.drawable.ic_media_previous, R.string.notification_previous))
             .addAction(action(ACTION_SEEK_BACK, REQUEST_SEEK_BACK, android.R.drawable.ic_media_rew, R.string.notification_seek_back))
             .addAction(
@@ -261,6 +255,10 @@ class PlaybackNotificationService : MediaSessionService() {
                     R.id.notification_seek_forward,
                     servicePendingIntent(ACTION_SEEK_FORWARD, REQUEST_SEEK_FORWARD),
                 )
+                setOnClickPendingIntent(
+                    R.id.notification_stop,
+                    servicePendingIntent(ACTION_STOP, REQUEST_STOP),
+                )
             }
             setTextViewText(R.id.notification_title, snapshot.title)
             setTextViewText(R.id.notification_details, snapshot.contentText)
@@ -271,7 +269,7 @@ class PlaybackNotificationService : MediaSessionService() {
             if (snapshot.artwork != null) {
                 setImageViewBitmap(R.id.notification_artwork, snapshot.artwork)
             } else {
-                setImageViewResource(R.id.notification_artwork, android.R.drawable.ic_media_play)
+                setImageViewResource(R.id.notification_artwork, R.drawable.icon)
             }
         }
     }
@@ -370,7 +368,7 @@ class PlaybackNotificationService : MediaSessionService() {
     companion object {
         private const val LEGACY_PLAYBACK_CHANNEL_ID = "luxmusic_playback"
         private const val PREVIOUS_PLAYBACK_CHANNEL_ID = "luxmusic_playback_v3"
-        private const val PLAYBACK_CHANNEL_ID = "luxmusic_playback_v4"
+        private const val PLAYBACK_CHANNEL_ID = "luxmusic_playback_v5"
         private const val NOTIFICATION_ID = 1207
         private const val ACTION_SYNC = "com.luxmusic.android.playback.SYNC"
         private const val ACTION_TOGGLE_PLAYBACK = "com.luxmusic.android.playback.TOGGLE"
@@ -378,19 +376,16 @@ class PlaybackNotificationService : MediaSessionService() {
         private const val ACTION_SKIP_NEXT = "com.luxmusic.android.playback.NEXT"
         private const val ACTION_SEEK_BACK = "com.luxmusic.android.playback.SEEK_BACK"
         private const val ACTION_SEEK_FORWARD = "com.luxmusic.android.playback.SEEK_FORWARD"
-        private const val ACTION_DISMISS = "com.luxmusic.android.playback.DISMISS"
+        private const val ACTION_STOP = "com.luxmusic.android.playback.STOP"
         private const val REQUEST_OPEN_APP = 1
         private const val REQUEST_PREVIOUS = 2
         private const val REQUEST_SEEK_BACK = 3
         private const val REQUEST_TOGGLE_PLAYBACK = 4
         private const val REQUEST_SEEK_FORWARD = 5
         private const val REQUEST_NEXT = 6
-        private const val REQUEST_DISMISS = 7
+        private const val REQUEST_STOP = 7
         private const val ACTIVE_REFRESH_MS = 1_000L
         private const val IDLE_REFRESH_MS = 2_000L
-        @Volatile
-        private var appClosed = false
-
         private fun formatTime(valueMs: Long): String {
             val totalSeconds = (valueMs.coerceAtLeast(0L) / 1_000L).toInt()
             val hours = totalSeconds / 3_600
@@ -414,14 +409,5 @@ class PlaybackNotificationService : MediaSessionService() {
             context.stopService(Intent(context, PlaybackNotificationService::class.java))
         }
 
-        fun markAppVisible() {
-            appClosed = false
-        }
-
-        private fun markAppClosed() {
-            appClosed = true
-        }
-
-        private fun isAppClosed(): Boolean = appClosed
     }
 }

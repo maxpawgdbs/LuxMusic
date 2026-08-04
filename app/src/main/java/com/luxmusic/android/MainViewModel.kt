@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 enum class LuxTab {
     HOME,
     LIBRARY,
+    ARTISTS,
     PLAYLISTS,
     DOWNLOAD,
 }
@@ -161,6 +162,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        viewModelScope.launch {
+            libraryStore.removeTrackFromPlaylist(playlistId, trackId)
+            messagesFlow.emit("Трек удалён из плейлиста.")
+        }
+    }
+
+    fun updatePlaylistName(playlistId: String, name: String) {
+        val normalized = name.trim()
+        if (normalized.isBlank()) return
+
+        viewModelScope.launch {
+            val previousName = libraryStore.snapshot.value.playlists
+                .firstOrNull { it.id == playlistId }
+                ?.name
+            val updated = libraryStore.updatePlaylistName(playlistId, normalized)
+            if (updated != null && previousName != null) {
+                playbackController.updateQueueTitle(previousName, updated.name)
+                messagesFlow.emit("Название плейлиста обновлено.")
+            }
+        }
+    }
+
     fun deletePlaylist(playlistId: String) {
         viewModelScope.launch {
             val removed = libraryStore.deletePlaylist(playlistId)
@@ -226,6 +250,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val startIndex = queue.indexOfFirst { it.id == trackId }
         if (startIndex >= 0) {
             playbackController.playOrToggleCollection(queue, startIndex, playlist.name)
+        }
+    }
+
+    fun playArtistTrack(artist: String, trackId: String) {
+        val queue = uiState.value.library.filter { it.artist.equals(artist, ignoreCase = true) }
+        val startIndex = queue.indexOfFirst { it.id == trackId }
+        if (startIndex >= 0) {
+            playbackController.playOrToggleCollection(queue, startIndex, "Артист • $artist")
         }
     }
 

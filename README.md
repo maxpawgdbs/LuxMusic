@@ -7,8 +7,10 @@ Android music player with an offline-first local library, playlists, link downlo
 ## Current features
 
 - Offline local library stored inside the app sandbox.
+- Artist grouping with dedicated artist pages.
 - Playlist management.
 - Shuffle, repeat-all, and repeat-one playback modes.
+- Persistent background playback with MediaSession controls and restored queue state.
 - Fast audio-only link downloads through `yt-dlp` for YouTube, TikTok, SoundCloud, and other supported sites.
 - Metadata-based matching for Spotify, Apple Music, Яндекс Музыка, and VK Музыка links.
 - Foreground media playback notification with progress bar and transport controls.
@@ -25,11 +27,11 @@ Android music player with an offline-first local library, playlists, link downlo
 
 - Commits pushed to `main` update the prerelease `edge` build.
 - Version tags publish a stable GitHub Release.
-- Every workflow run tests the app, runs release lint, and builds one signed universal APK.
+- Every workflow run tests the app, runs release lint, and builds one signed ARM universal APK.
 
 ## Stable APK updates
 
-- GitHub Releases publish a signed `LuxMusic-<version>-universal.apk` built with the bundled keystore at `signing/luxmusic-dev.jks`.
+- GitHub Releases publish a signed ARM64/ARMv7 `LuxMusic-<version>-universal.apk` built with the bundled keystore at `signing/luxmusic-dev.jks`.
 - Release workflow auto-increments `versionCode`, so every new `edge` build can be installed over the previous one without deleting the app and its local database.
 - The base app version is tracked through `luxmusic.baseVersion` in `gradle.properties`.
 - If you replace `signing/luxmusic-dev.jks` with another certificate, Android will require one reinstall. After that, updates will continue only between builds signed with the new certificate.

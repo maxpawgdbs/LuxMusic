@@ -15,6 +15,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import com.luxmusic.android.MainActivity
+import com.luxmusic.android.data.LibraryStore
 import com.luxmusic.android.data.PlaybackState
 import com.luxmusic.android.data.RepeatMode
 import com.luxmusic.android.data.Track
@@ -41,8 +42,12 @@ data class PlaybackNotificationSnapshot(
 )
 
 @UnstableApi
-class PlaybackController(context: Context) {
+class PlaybackController(
+    context: Context,
+    private val libraryStore: LibraryStore,
+) {
     private val appContext = context.applicationContext
+    private val playbackPreferences = appContext.getSharedPreferences(PLAYBACK_PREFERENCES, Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val player = ExoPlayer.Builder(appContext)
         .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
@@ -65,6 +70,7 @@ class PlaybackController(context: Context) {
     private var cachedNotificationArtwork: Bitmap? = null
     private var playbackForegroundServiceActive = false
     private var lastNotificationSyncState: NotificationSyncState? = null
+    private var lastPersistedState: PersistedPlaybackState? = null
 
     private val mediaSession = MediaSession.Builder(appContext, player)
         .setId("luxmusic_media_session")
@@ -83,6 +89,8 @@ class PlaybackController(context: Context) {
                 }
             },
         )
+
+        restorePlaybackState()
 
         scope.launch {
             while (isActive) {
@@ -118,20 +126,7 @@ class PlaybackController(context: Context) {
             return
         }
 
-        val mediaItems = tracks.map { track ->
-            MediaItem.Builder()
-                .setMediaId(track.id)
-                .setUri(File(track.localPath).toUri())
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .setArtworkUri(track.artworkPath?.let(::File)?.toUri())
-                        .build(),
-                )
-                .build()
-        }
+        val mediaItems = tracks.map(::mediaItem)
 
         player.setMediaItems(mediaItems, startIndex, 0L)
         player.prepare()
@@ -241,6 +236,27 @@ class PlaybackController(context: Context) {
         publishState()
     }
 
+    fun updateQueueTitle(previousTitle: String, newTitle: String) {
+        if (currentQueueTitle != previousTitle) return
+        currentQueueTitle = newTitle
+        publishState()
+    }
+
+    fun stopPlayback() {
+        player.stop()
+        player.clearMediaItems()
+        currentQueue = emptyList()
+        currentQueueTitle = DEFAULT_QUEUE_TITLE
+        playbackPreferences.edit().clear().apply()
+        lastPersistedState = null
+        publishState()
+    }
+
+    fun onNotificationServiceStopped() {
+        playbackForegroundServiceActive = false
+        lastNotificationSyncState = null
+    }
+
     fun removeTrack(trackId: String) {
         val index = currentQueue.indexOfFirst { it.id == trackId }
         currentQueue = currentQueue.filterNot { it.id == trackId }
@@ -305,6 +321,7 @@ class PlaybackController(context: Context) {
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeIf { it > 0L } ?: 0L,
         )
+        persistPlaybackState()
         syncPlaybackNotification()
     }
 
@@ -342,6 +359,87 @@ class PlaybackController(context: Context) {
     private fun currentTrack(): Track? {
         val currentId = player.currentMediaItem?.mediaId ?: return null
         return currentQueue.firstOrNull { it.id == currentId }
+    }
+
+    private fun mediaItem(track: Track): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(track.id)
+            .setUri(File(track.localPath).toUri())
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album)
+                    .setArtworkUri(track.artworkPath?.let(::File)?.toUri())
+                    .build(),
+            )
+            .build()
+    }
+
+    private fun restorePlaybackState() {
+        val savedIds = playbackPreferences.getString(KEY_QUEUE_IDS, null)
+            ?.split(',')
+            ?.filter(String::isNotBlank)
+            .orEmpty()
+        if (savedIds.isEmpty()) return
+
+        val tracksById = libraryStore.snapshot.value.tracks.associateBy(Track::id)
+        val restoredQueue = savedIds
+            .mapNotNull(tracksById::get)
+            .filter { File(it.localPath).exists() }
+        if (restoredQueue.isEmpty()) {
+            playbackPreferences.edit().clear().apply()
+            return
+        }
+
+        currentQueue = restoredQueue
+        currentQueueTitle = playbackPreferences.getString(KEY_QUEUE_TITLE, DEFAULT_QUEUE_TITLE)
+            .orEmpty()
+            .ifBlank { DEFAULT_QUEUE_TITLE }
+        val savedTrackId = playbackPreferences.getString(KEY_CURRENT_TRACK_ID, null)
+        val startIndex = restoredQueue.indexOfFirst { it.id == savedTrackId }.coerceAtLeast(0)
+        val positionMs = playbackPreferences.getLong(KEY_POSITION_MS, 0L).coerceAtLeast(0L)
+
+        player.setMediaItems(restoredQueue.map(::mediaItem), startIndex, positionMs)
+        player.shuffleModeEnabled = playbackPreferences.getBoolean(KEY_SHUFFLE, false)
+        player.repeatMode = playbackPreferences.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
+        player.prepare()
+        if (playbackPreferences.getBoolean(KEY_PLAY_WHEN_READY, false)) {
+            player.play()
+        }
+        publishState()
+    }
+
+    private fun persistPlaybackState() {
+        if (currentQueue.isEmpty() || player.mediaItemCount == 0) {
+            if (lastPersistedState != null || playbackPreferences.contains(KEY_QUEUE_IDS)) {
+                playbackPreferences.edit().clear().apply()
+                lastPersistedState = null
+            }
+            return
+        }
+
+        val persistedState = PersistedPlaybackState(
+            queueIds = currentQueue.map(Track::id),
+            queueTitle = currentQueueTitle,
+            currentTrackId = player.currentMediaItem?.mediaId,
+            positionBucket = player.currentPosition.coerceAtLeast(0L) / PERSIST_POSITION_INTERVAL_MS,
+            playWhenReady = player.playWhenReady,
+            shuffleEnabled = player.shuffleModeEnabled,
+            repeatMode = player.repeatMode,
+        )
+        if (persistedState == lastPersistedState) return
+
+        playbackPreferences.edit()
+            .putString(KEY_QUEUE_IDS, persistedState.queueIds.joinToString(","))
+            .putString(KEY_QUEUE_TITLE, persistedState.queueTitle)
+            .putString(KEY_CURRENT_TRACK_ID, persistedState.currentTrackId)
+            .putLong(KEY_POSITION_MS, player.currentPosition.coerceAtLeast(0L))
+            .putBoolean(KEY_PLAY_WHEN_READY, persistedState.playWhenReady)
+            .putBoolean(KEY_SHUFFLE, persistedState.shuffleEnabled)
+            .putInt(KEY_REPEAT_MODE, persistedState.repeatMode)
+            .apply()
+        lastPersistedState = persistedState
     }
 
     private fun currentArtwork(): Bitmap? {
@@ -394,13 +492,7 @@ class PlaybackController(context: Context) {
     }
 
     private fun notificationSubText(): String {
-        val mode = when (player.repeatMode) {
-            Player.REPEAT_MODE_ONE -> "Повтор трека"
-            Player.REPEAT_MODE_ALL -> "Повтор очереди"
-            else -> "Без повтора"
-        }
-        val shuffle = if (player.shuffleModeEnabled) "Перемешивание" else "По порядку"
-        return "$currentQueueTitle • $mode • $shuffle"
+        return "Из: $currentQueueTitle"
     }
 
     private fun contentIntent(): PendingIntent {
@@ -425,9 +517,28 @@ class PlaybackController(context: Context) {
         val artworkPath: String?,
     )
 
+    private data class PersistedPlaybackState(
+        val queueIds: List<String>,
+        val queueTitle: String,
+        val currentTrackId: String?,
+        val positionBucket: Long,
+        val playWhenReady: Boolean,
+        val shuffleEnabled: Boolean,
+        val repeatMode: Int,
+    )
+
     private companion object {
         const val SEEK_INCREMENT_MS = 10_000L
         const val MAX_NOTIFICATION_ARTWORK_PX = 256
         const val DEFAULT_QUEUE_TITLE = "Библиотека"
+        const val PERSIST_POSITION_INTERVAL_MS = 5_000L
+        const val PLAYBACK_PREFERENCES = "luxmusic_playback_state"
+        const val KEY_QUEUE_IDS = "queue_ids"
+        const val KEY_QUEUE_TITLE = "queue_title"
+        const val KEY_CURRENT_TRACK_ID = "current_track_id"
+        const val KEY_POSITION_MS = "position_ms"
+        const val KEY_PLAY_WHEN_READY = "play_when_ready"
+        const val KEY_SHUFFLE = "shuffle"
+        const val KEY_REPEAT_MODE = "repeat_mode"
     }
 }

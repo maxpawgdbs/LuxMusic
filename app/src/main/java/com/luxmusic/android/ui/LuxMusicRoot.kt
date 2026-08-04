@@ -14,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.DownloadForOffline
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material3.AlertDialog
@@ -57,12 +59,15 @@ internal fun LuxMusicRoot(
     onImportClick: () -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onAddTrackToPlaylist: (String, String) -> Unit,
+    onRemoveTrackFromPlaylist: (String, String) -> Unit,
+    onUpdatePlaylistName: (String, String) -> Unit,
     onUpdateTrackDetails: (String, String, String) -> Unit,
     onDeleteTrack: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
     onPlayPlaylist: (String) -> Unit,
     onPlayPlaylistTrack: (String, String) -> Unit,
+    onPlayArtistTrack: (String, String) -> Unit,
     onSelectQueueTrack: (String) -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -81,12 +86,15 @@ internal fun LuxMusicRoot(
     var showCreatePlaylist by rememberSaveable { mutableStateOf(false) }
     var createPlaylistName by rememberSaveable { mutableStateOf("") }
     var openedPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
+    var openedArtistName by rememberSaveable { mutableStateOf<String?>(null) }
     var playlistEditorId by rememberSaveable { mutableStateOf<String?>(null) }
     var lyricsTrack by remember { mutableStateOf<Track?>(null) }
     var playlistTargetTrack by remember { mutableStateOf<Track?>(null) }
     var editTargetTrack by remember { mutableStateOf<Track?>(null) }
     var editTitle by rememberSaveable { mutableStateOf("") }
     var editArtist by rememberSaveable { mutableStateOf("") }
+    var playlistToRename by remember { mutableStateOf<Playlist?>(null) }
+    var playlistName by rememberSaveable { mutableStateOf("") }
     var deleteTargetTrack by remember { mutableStateOf<Track?>(null) }
     var deleteTargetPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
@@ -95,6 +103,10 @@ internal fun LuxMusicRoot(
     }
     val playlistEditor = remember(uiState.playlists, playlistEditorId) {
         uiState.playlists.firstOrNull { it.id == playlistEditorId }
+    }
+    val openedArtistTracks = remember(uiState.library, openedArtistName) {
+        val artist = openedArtistName
+        if (artist == null) emptyList() else uiState.library.filter { it.artist == artist }
     }
 
     LaunchedEffect(openedPlaylistId, uiState.playlists) {
@@ -110,6 +122,11 @@ internal fun LuxMusicRoot(
     ) {
         openedPlaylistId = null
     }
+    BackHandler(
+        enabled = !showQueue && uiState.selectedTab == LuxTab.ARTISTS && openedArtistName != null,
+    ) {
+        openedArtistName = null
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -121,18 +138,39 @@ internal fun LuxMusicRoot(
                         when {
                             showQueue -> "Очередь"
                             openedPlaylist != null -> openedPlaylist.name
+                            openedArtistName != null -> openedArtistName.orEmpty()
                             else -> uiState.selectedTab.title()
                         },
                     )
                 },
                 navigationIcon = {
-                    if (showQueue || (uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null)) {
+                    if (
+                        showQueue ||
+                        (uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null) ||
+                        (uiState.selectedTab == LuxTab.ARTISTS && openedArtistName != null)
+                    ) {
                         IconButton(
                             onClick = {
-                                if (showQueue) showQueue = false else openedPlaylistId = null
+                                when {
+                                    showQueue -> showQueue = false
+                                    openedPlaylist != null -> openedPlaylistId = null
+                                    else -> openedArtistName = null
+                                }
                             },
                         ) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад")
+                        }
+                    }
+                },
+                actions = {
+                    if (!showQueue && openedPlaylist != null) {
+                        IconButton(
+                            onClick = {
+                                playlistToRename = openedPlaylist
+                                playlistName = openedPlaylist.name
+                            },
+                        ) {
+                            Icon(Icons.Rounded.Edit, contentDescription = "Переименовать")
                         }
                     }
                 },
@@ -146,6 +184,7 @@ internal fun LuxMusicRoot(
                             selected = uiState.selectedTab == tab,
                             onClick = {
                                 openedPlaylistId = null
+                                openedArtistName = null
                                 onSelectTab(tab)
                             },
                             icon = {
@@ -153,6 +192,7 @@ internal fun LuxMusicRoot(
                                     imageVector = when (tab) {
                                         LuxTab.HOME -> Icons.Rounded.Home
                                         LuxTab.LIBRARY -> Icons.Rounded.LibraryMusic
+                                        LuxTab.ARTISTS -> Icons.Rounded.Groups
                                         LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
                                         LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
                                     },
@@ -196,6 +236,8 @@ internal fun LuxMusicRoot(
                         tracks = uiState.visibleTracks,
                         currentTrackId = uiState.currentTrack?.id,
                         isPlaying = uiState.playback.isPlaying,
+                        librarySize = uiState.library.size,
+                        playlistCount = uiState.playlists.size,
                         onQueryChange = onSearchChange,
                         onPlay = onPlayTrack,
                         onShowLyrics = { lyricsTrack = it },
@@ -209,14 +251,38 @@ internal fun LuxMusicRoot(
                     )
                 }
 
+                LuxTab.ARTISTS -> {
+                    val artist = openedArtistName
+                    if (artist == null) {
+                        LuxArtistsPage(
+                            contentPadding = paddingValues,
+                            tracks = uiState.library,
+                            onOpenArtist = { openedArtistName = it },
+                        )
+                    } else {
+                        LuxArtistDetailPage(
+                            contentPadding = paddingValues,
+                            artist = artist,
+                            tracks = openedArtistTracks,
+                            currentTrackId = uiState.currentTrack?.id,
+                            onPlayTrack = { trackId -> onPlayArtistTrack(artist, trackId) },
+                        )
+                    }
+                }
+
                 LuxTab.PLAYLISTS -> {
                     if (openedPlaylist != null) {
                         LuxPlaylistDetailPage(
                             contentPadding = paddingValues,
                             playlist = openedPlaylist,
                             tracks = openedPlaylist.trackIds.mapNotNull(tracksById::get),
+                            currentTrackId = uiState.currentTrack?.id,
+                            isPlaying = uiState.playback.isPlaying,
                             onPlayPlaylist = { onPlayPlaylist(openedPlaylist.id) },
                             onPlayTrack = { trackId -> onPlayPlaylistTrack(openedPlaylist.id, trackId) },
+                            onRemoveTrack = { trackId ->
+                                onRemoveTrackFromPlaylist(openedPlaylist.id, trackId)
+                            },
                             onAddTracks = { playlistEditorId = openedPlaylist.id },
                             onDeletePlaylist = { deleteTargetPlaylist = openedPlaylist },
                         )
@@ -274,6 +340,37 @@ internal fun LuxMusicRoot(
             },
             dismissButton = {
                 TextButton(onClick = { showCreatePlaylist = false }) { Text("Отмена") }
+            },
+        )
+    }
+
+    playlistToRename?.let { playlist ->
+        AlertDialog(
+            onDismissRequest = { playlistToRename = null },
+            title = { Text("Название плейлиста") },
+            text = {
+                OutlinedTextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Название") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdatePlaylistName(playlist.id, playlistName)
+                        playlistToRename = null
+                    },
+                    enabled = playlistName.isNotBlank(),
+                    colors = luxPrimaryButtonColors(),
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToRename = null }) { Text("Отмена") }
             },
         )
     }
@@ -488,6 +585,7 @@ internal fun LuxMusicRoot(
 private fun LuxTab.title(): String = when (this) {
     LuxTab.HOME -> "Главная"
     LuxTab.LIBRARY -> "Библиотека"
+    LuxTab.ARTISTS -> "Артисты"
     LuxTab.PLAYLISTS -> "Плейлисты"
     LuxTab.DOWNLOAD -> "Загрузка"
 }

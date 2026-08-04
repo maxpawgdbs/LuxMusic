@@ -7,7 +7,7 @@ val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
 val bundledSigningStorePassword = "luxmusic"
 val bundledSigningKeyAlias = "luxmusic-dev"
 val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.4"
-val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 400000
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 401000
 val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: baseVersionName
 
 android {
@@ -40,9 +40,8 @@ android {
         }
         release {
             signingConfig = signingConfigs.getByName("luxmusic")
-            // Keep release behavior aligned with debug until explicit keep rules are in place.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -62,6 +61,10 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            excludes += setOf(
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -72,7 +75,7 @@ android {
         abi {
             isEnable = true
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            include("armeabi-v7a", "arm64-v8a")
             isUniversalApk = true
         }
     }
