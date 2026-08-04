@@ -14,17 +14,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.PauseCircleFilled
-import androidx.compose.material.icons.rounded.PlayCircleFilled
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.UploadFile
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
@@ -40,7 +37,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.data.RepeatMode
@@ -50,7 +46,7 @@ import com.luxmusic.android.data.Track
 internal fun LuxHomePage(
     contentPadding: PaddingValues,
     uiState: LuxMusicUiState,
-    onImportClick: () -> Unit,
+    onOpenQueue: () -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -58,19 +54,13 @@ internal fun LuxHomePage(
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
 ) {
-    val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
-        val tracksById = uiState.library.associateBy { it.id }
-        uiState.playback.queueTrackIds.mapNotNull(tracksById::get)
-    }
-
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             LuxPlayerCard(
                 uiState = uiState,
-                onImportClick = onImportClick,
                 onTogglePlayback = onTogglePlayback,
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
@@ -80,35 +70,15 @@ internal fun LuxHomePage(
             )
         }
         item {
-            ElevatedCard(
+            FilledTonalButton(
+                onClick = onOpenQueue,
                 modifier = Modifier.fillMaxWidth(),
-                colors = luxCardColors(),
+                enabled = uiState.playback.queueTrackIds.isNotEmpty(),
+                colors = luxTonalButtonColors(),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Text("Коллекция", style = MaterialTheme.typography.titleLarge)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        LuxStatChip(Icons.Rounded.LibraryMusic, uiState.library.size.toString(), "Треков")
-                        LuxStatChip(Icons.AutoMirrored.Rounded.QueueMusic, uiState.playlists.size.toString(), "Плейлистов")
-                        LuxStatChip(
-                            Icons.Rounded.GraphicEq,
-                            formatDuration(uiState.currentTrack?.durationMs ?: 0L),
-                            "Сейчас",
-                        )
-                    }
-                    Text(
-                        "Главная страница показывает активный плеер, текущую очередь и статус локальной коллекции без перегруженного фона.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Очередь · ${uiState.playback.queueTrackIds.size}")
             }
         }
         item {
@@ -119,35 +89,20 @@ internal fun LuxHomePage(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Очередь", style = MaterialTheme.typography.titleLarge)
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(uiState.playback.queueTitle) },
-                        leadingIcon = {
-                            Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null)
-                        },
-                        colors = luxSelectedAssistChipColors(),
-                    )
-                    if (queueTracks.isEmpty()) {
-                        Text(
-                            "Очередь появится после запуска трека или плейлиста.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Text("Коллекция", style = MaterialTheme.typography.titleLarge)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        LuxStatChip(Icons.Rounded.LibraryMusic, uiState.library.size.toString(), "Треков")
+                        LuxStatChip(
+                            Icons.AutoMirrored.Rounded.QueueMusic,
+                            uiState.playlists.size.toString(),
+                            "Плейлистов",
                         )
-                    } else {
-                        queueTracks.take(5).forEach { track ->
-                            val isCurrent = track.id == uiState.currentTrack?.id
-                            Text(
-                                text = "${if (isCurrent) "• " else ""}${track.title} • ${track.artist}",
-                                style = if (isCurrent) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
-                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                     }
                 }
             }
@@ -158,7 +113,6 @@ internal fun LuxHomePage(
 @Composable
 private fun LuxPlayerCard(
     uiState: LuxMusicUiState,
-    onImportClick: () -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -176,7 +130,7 @@ private fun LuxPlayerCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
                 text = "Сейчас играет",
@@ -185,37 +139,22 @@ private fun LuxPlayerCard(
             )
 
             if (currentTrack == null) {
-                Text("Добавьте музыку", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "Импортируйте локальные файлы или скачайте трек по ссылке, чтобы начать воспроизведение.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FilledTonalButton(
-                    onClick = onImportClick,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = luxTonalButtonColors(),
-                ) {
-                    Icon(Icons.Rounded.UploadFile, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Добавить музыку")
-                }
+                Text("Выберите трек в библиотеке", style = MaterialTheme.typography.headlineSmall)
             } else {
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(128.dp))
-                            LuxTrackMeta(track = currentTrack, queueTitle = uiState.playback.queueTitle)
+                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(148.dp))
+                            LuxTrackMeta(track = currentTrack)
                         }
                     } else {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(128.dp))
+                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(148.dp))
                             LuxTrackMeta(
                                 track = currentTrack,
-                                queueTitle = uiState.playback.queueTitle,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -257,7 +196,7 @@ private fun LuxPlayerCard(
                     FilterChip(
                         selected = uiState.playback.shuffleEnabled,
                         onClick = onToggleShuffle,
-                        label = { Text("Случайный порядок") },
+                        label = { Text("Перемешать") },
                         leadingIcon = { Icon(Icons.Rounded.Shuffle, contentDescription = null) },
                         colors = luxFilterChipColors(),
                     )
@@ -288,26 +227,22 @@ private fun LuxPlayerCard(
                         onClick = onSkipPrevious,
                         colors = luxTonalIconButtonColors(),
                     ) {
-                        Icon(Icons.Rounded.SkipPrevious, contentDescription = null)
+                        Icon(Icons.Rounded.SkipPrevious, contentDescription = "Предыдущий")
                     }
                     FilledIconButton(
                         onClick = onTogglePlayback,
                         colors = luxFilledIconButtonColors(),
                     ) {
                         Icon(
-                            if (uiState.playback.isPlaying) {
-                                Icons.Rounded.PauseCircleFilled
-                            } else {
-                                Icons.Rounded.PlayCircleFilled
-                            },
-                            contentDescription = null,
+                            if (uiState.playback.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (uiState.playback.isPlaying) "Пауза" else "Играть",
                         )
                     }
                     FilledTonalIconButton(
                         onClick = onSkipNext,
                         colors = luxTonalIconButtonColors(),
                     ) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = null)
+                        Icon(Icons.Rounded.SkipNext, contentDescription = "Следующий")
                     }
                 }
             }
@@ -318,28 +253,19 @@ private fun LuxPlayerCard(
 @Composable
 private fun LuxTrackMeta(
     track: Track,
-    queueTitle: String,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
+        LuxMarqueeText(
             text = track.title,
+            modifier = Modifier.fillMaxWidth(),
             style = MaterialTheme.typography.headlineSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = "${track.artist} • ${track.album}",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        AssistChip(
-            onClick = { },
-            label = { Text(queueTitle) },
-            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null) },
-            colors = luxAssistChipColors(),
         )
     }
 }

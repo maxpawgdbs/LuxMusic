@@ -16,7 +16,6 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -45,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
-import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -59,11 +57,13 @@ internal fun LuxMusicRoot(
     onImportClick: () -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onAddTrackToPlaylist: (String, String) -> Unit,
+    onUpdateTrackDetails: (String, String, String) -> Unit,
     onDeleteTrack: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
     onPlayPlaylist: (String) -> Unit,
     onPlayPlaylistTrack: (String, String) -> Unit,
+    onSelectQueueTrack: (String) -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -72,20 +72,23 @@ internal fun LuxMusicRoot(
     onSeekToFraction: (Float) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
     onDownloadLink: (String) -> Unit,
-    onCaptureDownloadAccount: (DownloadService, String?) -> Unit,
-    onImportDownloadAccount: (DownloadService) -> Unit,
-    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
+    val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
+        uiState.playback.queueTrackIds.mapNotNull(tracksById::get)
+    }
+    var showQueue by rememberSaveable { mutableStateOf(false) }
     var showCreatePlaylist by rememberSaveable { mutableStateOf(false) }
     var createPlaylistName by rememberSaveable { mutableStateOf("") }
     var openedPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
     var playlistEditorId by rememberSaveable { mutableStateOf<String?>(null) }
     var lyricsTrack by remember { mutableStateOf<Track?>(null) }
     var playlistTargetTrack by remember { mutableStateOf<Track?>(null) }
+    var editTargetTrack by remember { mutableStateOf<Track?>(null) }
+    var editTitle by rememberSaveable { mutableStateOf("") }
+    var editArtist by rememberSaveable { mutableStateOf("") }
     var deleteTargetTrack by remember { mutableStateOf<Track?>(null) }
     var deleteTargetPlaylist by remember { mutableStateOf<Playlist?>(null) }
-    var loginService by remember { mutableStateOf<DownloadService?>(null) }
 
     val openedPlaylist = remember(uiState.playlists, openedPlaylistId) {
         uiState.playlists.firstOrNull { it.id == openedPlaylistId }
@@ -95,17 +98,16 @@ internal fun LuxMusicRoot(
     }
 
     LaunchedEffect(openedPlaylistId, uiState.playlists) {
-        if (openedPlaylistId != null && openedPlaylist == null) {
-            openedPlaylistId = null
-        }
+        if (openedPlaylistId != null && openedPlaylist == null) openedPlaylistId = null
     }
     LaunchedEffect(playlistEditorId, uiState.playlists) {
-        if (playlistEditorId != null && playlistEditor == null) {
-            playlistEditorId = null
-        }
+        if (playlistEditorId != null && playlistEditor == null) playlistEditorId = null
     }
 
-    BackHandler(enabled = uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null) {
+    BackHandler(enabled = showQueue) { showQueue = false }
+    BackHandler(
+        enabled = !showQueue && uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null,
+    ) {
         openedPlaylistId = null
     }
 
@@ -114,117 +116,132 @@ internal fun LuxMusicRoot(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(openedPlaylist?.name ?: uiState.selectedTab.title()) },
-                navigationIcon = {
-                    if (uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null) {
-                        IconButton(onClick = { openedPlaylistId = null }) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад")
-                        }
-                    }
+                title = {
+                    Text(
+                        when {
+                            showQueue -> "Очередь"
+                            openedPlaylist != null -> openedPlaylist.name
+                            else -> uiState.selectedTab.title()
+                        },
+                    )
                 },
-                actions = {
-                    if (uiState.selectedTab == LuxTab.HOME || uiState.selectedTab == LuxTab.LIBRARY) {
-                        IconButton(onClick = onImportClick) {
-                            Icon(Icons.Rounded.UploadFile, contentDescription = "Импортировать")
+                navigationIcon = {
+                    if (showQueue || (uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null)) {
+                        IconButton(
+                            onClick = {
+                                if (showQueue) showQueue = false else openedPlaylistId = null
+                            },
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад")
                         }
                     }
                 },
             )
         },
         bottomBar = {
-            NavigationBar {
-                LuxTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = uiState.selectedTab == tab,
-                        onClick = {
-                            if (tab != LuxTab.PLAYLISTS) {
+            if (!showQueue) {
+                NavigationBar {
+                    LuxTab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = uiState.selectedTab == tab,
+                            onClick = {
                                 openedPlaylistId = null
-                            }
-                            onSelectTab(tab)
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = when (tab) {
-                                    LuxTab.HOME -> Icons.Rounded.Home
-                                    LuxTab.LIBRARY -> Icons.Rounded.LibraryMusic
-                                    LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
-                                    LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
-                                },
-                                contentDescription = null,
-                            )
-                        },
-                        label = { Text(tab.title()) },
-                    )
+                                onSelectTab(tab)
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = when (tab) {
+                                        LuxTab.HOME -> Icons.Rounded.Home
+                                        LuxTab.LIBRARY -> Icons.Rounded.LibraryMusic
+                                        LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
+                                        LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
+                                    },
+                                    contentDescription = null,
+                                )
+                            },
+                            label = { Text(tab.title()) },
+                        )
+                    }
                 }
             }
         },
     ) { paddingValues ->
-        when (uiState.selectedTab) {
-            LuxTab.HOME -> {
-                LuxHomePage(
-                    contentPadding = paddingValues,
-                    uiState = uiState,
-                    onImportClick = onImportClick,
-                    onTogglePlayback = onTogglePlayback,
-                    onSkipPrevious = onSkipPrevious,
-                    onSkipNext = onSkipNext,
-                    onToggleShuffle = onToggleShuffle,
-                    onCycleRepeat = onCycleRepeat,
-                    onSeekToFraction = onSeekToFraction,
-                )
-            }
-
-            LuxTab.LIBRARY -> {
-                LuxLibraryPage(
-                    contentPadding = paddingValues,
-                    query = uiState.searchQuery,
-                    tracks = uiState.visibleTracks,
-                    currentTrackId = uiState.currentTrack?.id,
-                    isPlaying = uiState.playback.isPlaying,
-                    librarySize = uiState.library.size,
-                    onQueryChange = onSearchChange,
-                    onImportClick = onImportClick,
-                    onPlay = onPlayTrack,
-                    onShowLyrics = { lyricsTrack = it },
-                    onAddToPlaylist = { playlistTargetTrack = it },
-                    onDelete = { deleteTargetTrack = it },
-                )
-            }
-
-            LuxTab.PLAYLISTS -> {
-                if (openedPlaylist != null) {
-                    LuxPlaylistDetailPage(
+        if (showQueue) {
+            LuxQueuePage(
+                contentPadding = paddingValues,
+                tracks = queueTracks,
+                currentTrackId = uiState.currentTrack?.id,
+                onSelectTrack = onSelectQueueTrack,
+            )
+        } else {
+            when (uiState.selectedTab) {
+                LuxTab.HOME -> {
+                    LuxHomePage(
                         contentPadding = paddingValues,
-                        playlist = openedPlaylist,
-                        tracks = openedPlaylist.trackIds.mapNotNull(tracksById::get),
-                        onPlayPlaylist = { onPlayPlaylist(openedPlaylist.id) },
-                        onPlayTrack = { trackId -> onPlayPlaylistTrack(openedPlaylist.id, trackId) },
-                        onAddTracks = { playlistEditorId = openedPlaylist.id },
-                        onDeletePlaylist = { deleteTargetPlaylist = openedPlaylist },
-                    )
-                } else {
-                    LuxPlaylistsPage(
-                        contentPadding = paddingValues,
-                        playlists = uiState.playlists,
-                        tracksById = tracksById,
-                        onOpenPlaylist = { openedPlaylistId = it },
-                        onPlayPlaylist = onPlayPlaylist,
-                        onCreatePlaylist = { showCreatePlaylist = true },
+                        uiState = uiState,
+                        onOpenQueue = { showQueue = true },
+                        onTogglePlayback = onTogglePlayback,
+                        onSkipPrevious = onSkipPrevious,
+                        onSkipNext = onSkipNext,
+                        onToggleShuffle = onToggleShuffle,
+                        onCycleRepeat = onCycleRepeat,
+                        onSeekToFraction = onSeekToFraction,
                     )
                 }
-            }
 
-            LuxTab.DOWNLOAD -> {
-                LuxDownloadPage(
-                    contentPadding = paddingValues,
-                    url = uiState.downloadUrl,
-                    onUrlChange = onDownloadUrlChange,
-                    onDownload = { onDownloadLink(uiState.downloadUrl) },
-                    uiState = uiState,
-                    onOpenDownloadAccountLogin = { loginService = it },
-                    onImportDownloadAccount = onImportDownloadAccount,
-                    onClearDownloadAccount = onClearDownloadAccount,
-                )
+                LuxTab.LIBRARY -> {
+                    LuxLibraryPage(
+                        contentPadding = paddingValues,
+                        query = uiState.searchQuery,
+                        tracks = uiState.visibleTracks,
+                        currentTrackId = uiState.currentTrack?.id,
+                        isPlaying = uiState.playback.isPlaying,
+                        onQueryChange = onSearchChange,
+                        onPlay = onPlayTrack,
+                        onShowLyrics = { lyricsTrack = it },
+                        onAddToPlaylist = { playlistTargetTrack = it },
+                        onEdit = { track ->
+                            editTargetTrack = track
+                            editTitle = track.title
+                            editArtist = track.artist
+                        },
+                        onDelete = { deleteTargetTrack = it },
+                    )
+                }
+
+                LuxTab.PLAYLISTS -> {
+                    if (openedPlaylist != null) {
+                        LuxPlaylistDetailPage(
+                            contentPadding = paddingValues,
+                            playlist = openedPlaylist,
+                            tracks = openedPlaylist.trackIds.mapNotNull(tracksById::get),
+                            onPlayPlaylist = { onPlayPlaylist(openedPlaylist.id) },
+                            onPlayTrack = { trackId -> onPlayPlaylistTrack(openedPlaylist.id, trackId) },
+                            onAddTracks = { playlistEditorId = openedPlaylist.id },
+                            onDeletePlaylist = { deleteTargetPlaylist = openedPlaylist },
+                        )
+                    } else {
+                        LuxPlaylistsPage(
+                            contentPadding = paddingValues,
+                            playlists = uiState.playlists,
+                            tracksById = tracksById,
+                            onOpenPlaylist = { openedPlaylistId = it },
+                            onPlayPlaylist = onPlayPlaylist,
+                            onCreatePlaylist = { showCreatePlaylist = true },
+                        )
+                    }
+                }
+
+                LuxTab.DOWNLOAD -> {
+                    LuxDownloadPage(
+                        contentPadding = paddingValues,
+                        url = uiState.downloadUrl,
+                        onUrlChange = onDownloadUrlChange,
+                        onImportClick = onImportClick,
+                        onDownload = { onDownloadLink(uiState.downloadUrl) },
+                        uiState = uiState,
+                    )
+                }
             }
         }
     }
@@ -256,20 +273,58 @@ internal fun LuxMusicRoot(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCreatePlaylist = false }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { showCreatePlaylist = false }) { Text("Отмена") }
             },
         )
     }
 
-    if (lyricsTrack != null) {
+    editTargetTrack?.let { track ->
+        AlertDialog(
+            onDismissRequest = { editTargetTrack = null },
+            title = { Text("Изменить трек") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Название") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = editArtist,
+                        onValueChange = { editArtist = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Автор") },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdateTrackDetails(track.id, editTitle, editArtist)
+                        editTargetTrack = null
+                    },
+                    enabled = editTitle.isNotBlank() && editArtist.isNotBlank(),
+                    colors = luxPrimaryButtonColors(),
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editTargetTrack = null }) { Text("Отмена") }
+            },
+        )
+    }
+
+    lyricsTrack?.let { track ->
         AlertDialog(
             onDismissRequest = { lyricsTrack = null },
-            title = { Text(lyricsTrack?.title ?: "Текст") },
+            title = { Text(track.title) },
             text = {
                 Text(
-                    text = lyricsTrack?.lyrics ?: "У этого трека пока нет сохраненного текста.",
+                    text = track.lyrics ?: "Текст не найден.",
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 320.dp)
@@ -277,20 +332,18 @@ internal fun LuxMusicRoot(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { lyricsTrack = null }) {
-                    Text("Закрыть")
-                }
+                TextButton(onClick = { lyricsTrack = null }) { Text("Закрыть") }
             },
         )
     }
 
-    if (playlistTargetTrack != null) {
+    playlistTargetTrack?.let { track ->
         AlertDialog(
             onDismissRequest = { playlistTargetTrack = null },
             title = { Text("Добавить в плейлист") },
             text = {
                 if (uiState.playlists.isEmpty()) {
-                    Text("Сначала создайте хотя бы один плейлист.")
+                    Text("Сначала создайте плейлист.")
                 } else {
                     Column(
                         modifier = Modifier
@@ -304,9 +357,7 @@ internal fun LuxMusicRoot(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        playlistTargetTrack?.let { track ->
-                                            onAddTrackToPlaylist(playlist.id, track.id)
-                                        }
+                                        onAddTrackToPlaylist(playlist.id, track.id)
                                         playlistTargetTrack = null
                                     },
                                 shape = MaterialTheme.shapes.large,
@@ -322,8 +373,7 @@ internal fun LuxMusicRoot(
                                 ) {
                                     Text(playlist.name, style = MaterialTheme.typography.titleMedium)
                                     Text(
-                                        "${playlist.trackIds.size} трек(ов)",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        playlist.trackIds.size.toString(),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
@@ -333,21 +383,19 @@ internal fun LuxMusicRoot(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { playlistTargetTrack = null }) {
-                    Text("Закрыть")
-                }
+                TextButton(onClick = { playlistTargetTrack = null }) { Text("Закрыть") }
             },
         )
     }
 
-    if (playlistEditor != null) {
-        val availableTracks = uiState.library.filterNot { track -> track.id in playlistEditor.trackIds }
+    playlistEditor?.let { playlist ->
+        val availableTracks = uiState.library.filterNot { it.id in playlist.trackIds }
         AlertDialog(
             onDismissRequest = { playlistEditorId = null },
             title = { Text("Добавить треки") },
             text = {
                 if (availableTracks.isEmpty()) {
-                    Text("В библиотеке нет новых треков для плейлиста \"${playlistEditor.name}\".")
+                    Text("Нет доступных треков.")
                 } else {
                     Column(
                         modifier = Modifier
@@ -360,31 +408,24 @@ internal fun LuxMusicRoot(
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onAddTrackToPlaylist(playlistEditor.id, track.id) },
+                                    .clickable { onAddTrackToPlaylist(playlist.id, track.id) },
                                 shape = MaterialTheme.shapes.large,
                                 color = MaterialTheme.colorScheme.surface,
                                 tonalElevation = 2.dp,
                             ) {
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp, vertical = 14.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Text(track.title, style = MaterialTheme.typography.titleMedium)
-                                        Text(
-                                            "${track.artist} • ${track.album}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                                    LuxMarqueeText(
+                                        text = track.title,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
                                     Text(
-                                        formatDuration(track.durationMs),
+                                        track.artist,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -395,24 +436,20 @@ internal fun LuxMusicRoot(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { playlistEditorId = null }) {
-                    Text("Готово")
-                }
+                TextButton(onClick = { playlistEditorId = null }) { Text("Готово") }
             },
         )
     }
 
-    if (deleteTargetTrack != null) {
+    deleteTargetTrack?.let { track ->
         AlertDialog(
             onDismissRequest = { deleteTargetTrack = null },
             title = { Text("Удалить трек") },
-            text = {
-                Text("Трек \"${deleteTargetTrack?.title}\" будет удален с устройства и из всех плейлистов.")
-            },
+            text = { Text("«${track.title}» будет удалён с устройства.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        deleteTargetTrack?.let { onDeleteTrack(it.id) }
+                        onDeleteTrack(track.id)
                         deleteTargetTrack = null
                     },
                 ) {
@@ -420,29 +457,21 @@ internal fun LuxMusicRoot(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTargetTrack = null }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { deleteTargetTrack = null }) { Text("Отмена") }
             },
         )
     }
 
-    if (deleteTargetPlaylist != null) {
+    deleteTargetPlaylist?.let { playlist ->
         AlertDialog(
             onDismissRequest = { deleteTargetPlaylist = null },
             title = { Text("Удалить плейлист") },
-            text = {
-                Text("Плейлист \"${deleteTargetPlaylist?.name}\" будет удален. Треки в библиотеке останутся.")
-            },
+            text = { Text("«${playlist.name}» будет удалён.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        deleteTargetPlaylist?.let {
-                            onDeletePlaylist(it.id)
-                            if (openedPlaylistId == it.id) {
-                                openedPlaylistId = null
-                            }
-                        }
+                        onDeletePlaylist(playlist.id)
+                        if (openedPlaylistId == playlist.id) openedPlaylistId = null
                         deleteTargetPlaylist = null
                     },
                 ) {
@@ -450,21 +479,7 @@ internal fun LuxMusicRoot(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTargetPlaylist = null }) {
-                    Text("Отмена")
-                }
-            },
-        )
-    }
-
-    if (loginService != null) {
-        DownloadAccountLoginDialog(
-            service = loginService!!,
-            onDismiss = { loginService = null },
-            onComplete = { userAgent ->
-                val service = loginService ?: return@DownloadAccountLoginDialog
-                onCaptureDownloadAccount(service, userAgent)
-                loginService = null
+                TextButton(onClick = { deleteTargetPlaylist = null }) { Text("Отмена") }
             },
         )
     }

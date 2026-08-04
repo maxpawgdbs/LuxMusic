@@ -1,5 +1,7 @@
 package com.luxmusic.android.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,8 +25,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.data.RepeatMode
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun LuxMarqueeText(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+) {
+    Text(
+        text = text,
+        modifier = modifier.basicMarquee(iterations = Int.MAX_VALUE),
+        style = style,
+        color = color,
+        fontWeight = fontWeight,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
+    )
+}
 
 @Composable
 internal fun LuxInfoCard(title: String, body: String) {

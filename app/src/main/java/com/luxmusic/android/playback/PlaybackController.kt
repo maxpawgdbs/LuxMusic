@@ -210,6 +210,37 @@ class PlaybackController(context: Context) {
         publishState()
     }
 
+    fun selectQueueTrack(trackId: String) {
+        val index = currentQueue.indexOfFirst { it.id == trackId }
+        if (index < 0 || index >= player.mediaItemCount) return
+
+        player.seekTo(index, 0L)
+        player.play()
+        publishState()
+    }
+
+    fun updateTrackDetails(updatedTrack: Track) {
+        val index = currentQueue.indexOfFirst { it.id == updatedTrack.id }
+        if (index < 0 || index >= player.mediaItemCount) return
+
+        currentQueue = currentQueue.toMutableList().also { queue ->
+            queue[index] = updatedTrack
+        }
+        val currentItem = player.getMediaItemAt(index)
+        player.replaceMediaItem(
+            index,
+            currentItem.buildUpon()
+                .setMediaMetadata(
+                    currentItem.mediaMetadata.buildUpon()
+                        .setTitle(updatedTrack.title)
+                        .setArtist(updatedTrack.artist)
+                        .build(),
+                )
+                .build(),
+        )
+        publishState()
+    }
+
     fun removeTrack(trackId: String) {
         val index = currentQueue.indexOfFirst { it.id == trackId }
         currentQueue = currentQueue.filterNot { it.id == trackId }

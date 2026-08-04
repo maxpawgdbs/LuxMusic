@@ -4,7 +4,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
-import com.luxmusic.android.data.DownloadService
 
 @Composable
 fun LuxMusicScreen(
@@ -15,11 +14,13 @@ fun LuxMusicScreen(
     onImportClick: () -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onAddTrackToPlaylist: (String, String) -> Unit,
+    onUpdateTrackDetails: (String, String, String) -> Unit,
     onDeleteTrack: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
     onPlayPlaylist: (String) -> Unit,
     onPlayPlaylistTrack: (String, String) -> Unit,
+    onSelectQueueTrack: (String) -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -28,9 +29,6 @@ fun LuxMusicScreen(
     onSeekToFraction: (Float) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
     onDownloadLink: (String) -> Unit,
-    onCaptureDownloadAccount: (DownloadService, String?) -> Unit,
-    onImportDownloadAccount: (DownloadService) -> Unit,
-    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
     LuxMusicRoot(
         uiState = uiState,
@@ -40,11 +38,13 @@ fun LuxMusicScreen(
         onImportClick = onImportClick,
         onCreatePlaylist = onCreatePlaylist,
         onAddTrackToPlaylist = onAddTrackToPlaylist,
+        onUpdateTrackDetails = onUpdateTrackDetails,
         onDeleteTrack = onDeleteTrack,
         onDeletePlaylist = onDeletePlaylist,
         onPlayTrack = onPlayTrack,
         onPlayPlaylist = onPlayPlaylist,
         onPlayPlaylistTrack = onPlayPlaylistTrack,
+        onSelectQueueTrack = onSelectQueueTrack,
         onTogglePlayback = onTogglePlayback,
         onSkipPrevious = onSkipPrevious,
         onSkipNext = onSkipNext,
@@ -53,8 +53,5 @@ fun LuxMusicScreen(
         onSeekToFraction = onSeekToFraction,
         onDownloadUrlChange = onDownloadUrlChange,
         onDownloadLink = onDownloadLink,
-        onCaptureDownloadAccount = onCaptureDownloadAccount,
-        onImportDownloadAccount = onImportDownloadAccount,
-        onClearDownloadAccount = onClearDownloadAccount,
     )
 }

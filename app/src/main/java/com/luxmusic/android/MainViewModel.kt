@@ -188,6 +188,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateTrackDetails(trackId: String, title: String, artist: String) {
+        val normalizedTitle = title.trim()
+        val normalizedArtist = artist.trim()
+        if (normalizedTitle.isBlank() || normalizedArtist.isBlank()) return
+
+        viewModelScope.launch {
+            libraryStore.updateTrackDetails(trackId, normalizedTitle, normalizedArtist)?.let { updated ->
+                playbackController.updateTrackDetails(updated)
+            }
+        }
+    }
+
     fun toggleLibraryTrack(trackId: String) {
         val queue = uiState.value.visibleTracks.ifEmpty { uiState.value.library }
         val index = queue.indexOfFirst { it.id == trackId }
@@ -228,6 +240,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun cycleRepeat() = playbackController.cycleRepeatMode()
 
     fun seekToFraction(fraction: Float) = playbackController.seekToFraction(fraction)
+
+    fun selectQueueTrack(trackId: String) = playbackController.selectQueueTrack(trackId)
 
     fun downloadFromLink(url: String) {
         val normalized = url.trim()

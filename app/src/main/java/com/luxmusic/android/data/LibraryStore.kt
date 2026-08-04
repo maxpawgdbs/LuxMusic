@@ -87,6 +87,23 @@ class LibraryStore(private val context: Context) {
         }
     }
 
+    suspend fun updateTrackDetails(trackId: String, title: String, artist: String): Track? =
+        withContext(Dispatchers.IO) {
+            writeMutex.withLock {
+                val current = mutableSnapshot.value
+                val target = current.tracks.firstOrNull { it.id == trackId } ?: return@withLock null
+                val updatedTrack = target.copy(
+                    title = title.trim(),
+                    artist = artist.trim(),
+                )
+                val updatedTracks = current.tracks.map { track ->
+                    if (track.id == trackId) updatedTrack else track
+                }
+                persist(current.copy(tracks = updatedTracks))
+                updatedTrack
+            }
+        }
+
     suspend fun deletePlaylist(playlistId: String): Playlist? = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val current = mutableSnapshot.value
