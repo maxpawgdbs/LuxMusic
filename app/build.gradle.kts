@@ -6,8 +6,8 @@ plugins {
 val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
 val bundledSigningStorePassword = "luxmusic"
 val bundledSigningKeyAlias = "luxmusic-dev"
-val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "6.0.1"
-val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 6_001_000
+val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.6.2"
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 6_002_000
 val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: baseVersionName
 
 android {
@@ -173,4 +173,33 @@ tasks.matching { it.name == "testDebugUnitTest" }.configureEach {
 
 tasks.matching { it.name == "test" || it.name == "check" }.configureEach {
     dependsOn("offlineUnitTest")
+}
+
+val verifyReleaseRuntimeKeepRules = tasks.register("verifyReleaseRuntimeKeepRules") {
+    group = "verification"
+    description = "Checks that R8 preserves classes instantiated reflectively by the release downloader."
+    dependsOn("minifyReleaseWithR8")
+
+    doLast {
+        val mappingFile = layout.buildDirectory.file("outputs/mapping/release/mapping.txt").get().asFile
+        check(mappingFile.isFile) {
+            "Release R8 mapping is missing: ${mappingFile.absolutePath}"
+        }
+
+        val mapping = mappingFile.readText()
+        val reflectiveClasses = listOf(
+            "org.apache.commons.compress.archivers.zip.AsiExtraField",
+            "org.apache.commons.compress.archivers.zip.ExtraFieldUtils",
+            "org.apache.commons.compress.archivers.zip.ZipFile",
+        )
+        reflectiveClasses.forEach { className ->
+            check(mapping.contains("$className -> $className:")) {
+                "$className was renamed by R8; release link downloads would fail at runtime"
+            }
+        }
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy(verifyReleaseRuntimeKeepRules)
 }

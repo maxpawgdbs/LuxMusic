@@ -140,7 +140,7 @@ app/build/outputs/apk/release/app-universal-release.apk
 ## Выпуск обновлений
 
 - Push в `main` обновляет тестовый prerelease `edge`.
-- Тег формата `v6.0.1` создаёт отдельный стабильный GitHub Release.
+- Тег формата `v0.6.2` создаёт отдельный стабильный GitHub Release.
 - Перед публикацией CI запускает тесты, release-lint и собирает подписанный универсальный APK для ARM64/ARMv7.
 - Базовая версия приложения задаётся свойством `luxmusic.baseVersion` в `gradle.properties`.
 
