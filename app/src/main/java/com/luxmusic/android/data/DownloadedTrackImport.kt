@@ -8,6 +8,7 @@ data class DownloadedTrackImport(
     val title: String,
     val artist: String,
     val album: String,
+    val durationMs: Long = 0L,
     val artworkBytes: ByteArray? = null,
     val sourceUrl: String? = null,
 )

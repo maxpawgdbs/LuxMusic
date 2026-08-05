@@ -14,6 +14,7 @@ import com.luxmusic.android.data.Track
 import com.luxmusic.android.download.DownloadParsing
 import com.luxmusic.android.download.DownloadCollectionResult
 import com.luxmusic.android.download.yandex.YandexAuthState
+import com.luxmusic.android.download.yandex.YandexAuthorizationService
 import com.luxmusic.android.download.yandex.YandexSourceKind
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,7 @@ enum class LuxTab {
     ARTISTS,
     PLAYLISTS,
     DOWNLOAD,
+    SETTINGS,
 }
 
 data class LuxMusicUiState(
@@ -355,22 +357,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectQueueTrack(trackId: String) = playbackGateway.selectQueueTrack(trackId)
 
     fun connectYandexMusic() {
-        if (linkDownloader.yandexAuthState.value.isAuthorizing) return
         viewModelScope.launch {
-            linkDownloader.authorizeYandex { code ->
+            linkDownloader.beginYandexAuthorization().onSuccess { code ->
                 authBrowserRequestsFlow.emit(
                     YandexAuthBrowserRequest(
                         url = code.verificationUrl,
                         userCode = code.userCode,
                     ),
                 )
+                YandexAuthorizationService.start(getApplication()).onFailure { error ->
+                    messagesFlow.emit(
+                        error.message ?: "Не удалось запустить фоновое ожидание авторизации.",
+                    )
+                }
             }.onFailure { error ->
                 messagesFlow.emit(error.message ?: "Не удалось подключить Яндекс Музыку.")
             }
         }
     }
 
+    fun resumeYandexMusicAuthorization() {
+        if (!linkDownloader.hasPendingYandexAuthorization()) return
+        YandexAuthorizationService.start(getApplication()).onFailure { error ->
+            viewModelScope.launch {
+                messagesFlow.emit(error.message ?: "Не удалось продолжить авторизацию Яндекс Музыки.")
+            }
+        }
+    }
+
     fun disconnectYandexMusic() {
+        YandexAuthorizationService.stop(getApplication())
         linkDownloader.disconnectYandex()
         viewModelScope.launch { messagesFlow.emit("Аккаунт Яндекс Музыки отключён.") }
     }

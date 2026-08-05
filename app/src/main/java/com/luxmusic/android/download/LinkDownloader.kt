@@ -1,6 +1,7 @@
 package com.luxmusic.android.download
 
 import android.content.Context
+import android.util.Log
 import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.DownloadState
 import com.luxmusic.android.data.ImportFileRules
@@ -14,6 +15,7 @@ import com.luxmusic.android.download.yandex.YandexMusicUrlParser
 import com.luxmusic.android.download.yandex.YandexPlaylistGroup
 import com.luxmusic.android.download.yandex.YandexSourceKind
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +57,7 @@ class LinkDownloader(
         audioInspector = MetadataAudioInspector(MetadataExtractor(context)),
         workspaceManager = CacheWorkspaceManager(context.cacheDir),
     )
+    private val operationGuard = DownloadOperationGuard()
 
     @Volatile
     private var initialized = false
@@ -71,6 +74,7 @@ class LinkDownloader(
                 statusMessage = "Вставьте ссылку с YouTube, TikTok, SoundCloud или другой поддерживаемой площадки.",
             )
         } catch (error: Throwable) {
+            Log.e(TAG, "yt-dlp initialization failed", error)
             mutableState.value = DownloadState(
                 isAvailable = true,
                 statusMessage = "Обычный загрузчик не инициализировался, но ZIP и Яндекс Музыка доступны.",
@@ -79,9 +83,15 @@ class LinkDownloader(
         }
     }
 
-    suspend fun authorizeYandex(onCode: suspend (YandexDeviceCode) -> Unit): Result<Unit> {
-        return yandexDownloader.authorize(onCode)
-    }
+    suspend fun beginYandexAuthorization(): Result<YandexDeviceCode> =
+        yandexDownloader.beginAuthorization()
+
+    suspend fun completeYandexAuthorization(): Result<Unit> =
+        yandexDownloader.completePendingAuthorization()
+
+    fun hasPendingYandexAuthorization(): Boolean = yandexDownloader.hasPendingAuthorization()
+
+    fun cancelYandexAuthorization() = yandexDownloader.cancelAuthorization()
 
     fun disconnectYandex() = yandexDownloader.disconnect()
 
@@ -90,11 +100,22 @@ class LinkDownloader(
     }
 
     suspend fun downloadCollection(url: String): Result<DownloadCollectionResult> = withContext(Dispatchers.IO) {
-        val normalizedUrl = DownloadParsing.normalizeUserInput(url)
-        if (YandexMusicUrlParser.hasYandexMusicHost(normalizedUrl)) {
-            return@withContext downloadYandex(normalizedUrl)
+        if (!operationGuard.tryAcquire()) {
+            return@withContext Result.failure(downloadAlreadyRunningError())
         }
-        downloadGeneric(normalizedUrl).map { tracks -> DownloadCollectionResult(tracks = tracks) }
+        try {
+            val normalizedUrl = DownloadParsing.normalizeUserInput(url)
+            if (YandexMusicUrlParser.hasYandexMusicHost(normalizedUrl)) {
+                return@withContext downloadYandex(normalizedUrl)
+            }
+            if (shouldImportAsArchive(normalizedUrl)) {
+                return@withContext downloadArchiveExclusive(normalizedUrl)
+                    .map { tracks -> DownloadCollectionResult(tracks = tracks) }
+            }
+            downloadGeneric(normalizedUrl).map { tracks -> DownloadCollectionResult(tracks = tracks) }
+        } finally {
+            operationGuard.release()
+        }
     }
 
     private suspend fun downloadYandex(normalizedUrl: String): Result<DownloadCollectionResult> {
@@ -131,6 +152,8 @@ class LinkDownloader(
                 warnings = result.warnings,
             )
         }.onFailure { error ->
+            Log.e(TAG, "Yandex Music download failed", error)
+            if (error is CancellationException) throw error
             mutableState.value = DownloadState(
                 isAvailable = true,
                 statusMessage = "Не удалось скачать из Яндекс Музыки.",
@@ -195,6 +218,8 @@ class LinkDownloader(
 
             Result.success(result.tracks)
         } catch (error: Throwable) {
+            Log.e(TAG, "Generic link download failed for ${sourceService.name}", error)
+            if (error is CancellationException) throw error
             mutableState.value = mutableState.value.copy(
                 isRunning = false,
                 progress = 0f,
@@ -212,6 +237,17 @@ class LinkDownloader(
     }
 
     suspend fun downloadArchive(url: String): Result<List<Track>> = withContext(Dispatchers.IO) {
+        if (!operationGuard.tryAcquire()) {
+            return@withContext Result.failure(downloadAlreadyRunningError())
+        }
+        try {
+            downloadArchiveExclusive(url)
+        } finally {
+            operationGuard.release()
+        }
+    }
+
+    private suspend fun downloadArchiveExclusive(url: String): Result<List<Track>> {
         val normalizedUrl = DownloadParsing.normalizeUserInput(url)
         if (!DownloadParsing.isDownloadableUrl(normalizedUrl)) {
             val error = IllegalArgumentException("Вставьте корректную прямую ссылку на ZIP-архив.")
@@ -221,7 +257,7 @@ class LinkDownloader(
                 statusMessage = "Ссылка на архив не распознана.",
                 errorMessage = error.message,
             )
-            return@withContext Result.failure(error)
+            return Result.failure(error)
         }
         if (!normalizedUrl.startsWith("https://", ignoreCase = true)) {
             val error = IllegalArgumentException("Для прямой загрузки ZIP используйте защищённую HTTPS-ссылку.")
@@ -231,7 +267,7 @@ class LinkDownloader(
                 statusMessage = "Нужна HTTPS-ссылка на архив.",
                 errorMessage = error.message,
             )
-            return@withContext Result.failure(error)
+            return Result.failure(error)
         }
 
         mutableState.value = mutableState.value.copy(
@@ -246,7 +282,7 @@ class LinkDownloader(
             "luxmusic-archive-${UUID.randomUUID()}.zip",
         )
         var connection: HttpURLConnection? = null
-        try {
+        return try {
             connection = (URL(normalizedUrl).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 requestMethod = "GET"
@@ -270,6 +306,7 @@ class LinkDownloader(
             }
 
             var downloadedBytes = 0L
+            val progressLimiter = DownloadProgressLimiter()
             BufferedInputStream(connection.inputStream).use { input ->
                 temporaryArchive.outputStream().buffered().use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -281,11 +318,15 @@ class LinkDownloader(
                             throw IllegalArgumentException("ZIP-архив больше допустимого размера 1 ГБ.")
                         }
                         output.write(buffer, 0, read)
-                        if (contentLength > 0L) {
+                        val archiveProgress = if (contentLength > 0L) {
+                            (downloadedBytes.toFloat() / contentLength.toFloat()).coerceIn(0f, 0.9f)
+                        } else {
+                            0f
+                        }
+                        if (contentLength > 0L && progressLimiter.shouldPublish(archiveProgress)) {
                             mutableState.value = mutableState.value.copy(
                                 isRunning = true,
-                                progress = (downloadedBytes.toFloat() / contentLength.toFloat())
-                                    .coerceIn(0f, 0.9f),
+                                progress = archiveProgress,
                                 statusMessage = "Скачиваем ZIP-архив...",
                                 errorMessage = null,
                             )
@@ -322,17 +363,81 @@ class LinkDownloader(
             )
             Result.success(tracks)
         } catch (error: Throwable) {
+            Log.e(TAG, "Remote archive download/import failed", error)
+            if (error is CancellationException) throw error
             mutableState.value = mutableState.value.copy(
                 isRunning = false,
                 progress = 0f,
                 statusMessage = "Не удалось скачать или импортировать ZIP-архив.",
-                errorMessage = error.message ?: "Ошибка загрузки ZIP-архива.",
+                errorMessage = DownloadFailureText.from(error, "Ошибка загрузки ZIP-архива."),
             )
             Result.failure(error)
         } finally {
             connection?.disconnect()
             temporaryArchive.delete()
         }
+    }
+
+    private fun downloadAlreadyRunningError(): IllegalStateException =
+        IllegalStateException("Дождитесь завершения текущей загрузки.")
+
+    private fun shouldImportAsArchive(url: String): Boolean {
+        if (RemoteDownloadClassifier.isArchiveUrl(url)) return true
+        if (DownloadParsing.detectService(url) != DownloadService.UNKNOWN) return false
+        if (!url.startsWith("https://", ignoreCase = true)) return false
+
+        mutableState.value = mutableState.value.copy(
+            isRunning = true,
+            progress = 0.01f,
+            statusMessage = "Проверяем тип ссылки...",
+            errorMessage = null,
+        )
+        return runCatching {
+            val head = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "HEAD"
+                instanceFollowRedirects = true
+                connectTimeout = ARCHIVE_PROBE_TIMEOUT_MS
+                readTimeout = ARCHIVE_PROBE_TIMEOUT_MS
+                setRequestProperty("User-Agent", ARCHIVE_USER_AGENT)
+            }
+            try {
+                if (head.responseCode in 200..399 && RemoteDownloadClassifier.isArchiveResponse(
+                        contentType = head.contentType,
+                        contentDisposition = head.getHeaderField("Content-Disposition"),
+                    )
+                ) {
+                    return@runCatching true
+                }
+            } finally {
+                head.disconnect()
+            }
+
+            val range = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = true
+                connectTimeout = ARCHIVE_PROBE_TIMEOUT_MS
+                readTimeout = ARCHIVE_PROBE_TIMEOUT_MS
+                setRequestProperty("User-Agent", ARCHIVE_USER_AGENT)
+                setRequestProperty("Range", "bytes=0-3")
+            }
+            try {
+                if (range.responseCode !in 200..299) return@runCatching false
+                val header = range.inputStream.use { input ->
+                    ByteArray(4).also { bytes ->
+                        var offset = 0
+                        while (offset < bytes.size) {
+                            val read = input.read(bytes, offset, bytes.size - offset)
+                            if (read < 0) break
+                            offset += read
+                        }
+                        if (offset != bytes.size) return@runCatching false
+                    }
+                }
+                RemoteDownloadClassifier.hasZipSignature(header)
+            } finally {
+                range.disconnect()
+            }
+        }.getOrDefault(false)
     }
 
     private fun successMessage(result: DownloadExecutionResult): String {
@@ -353,7 +458,7 @@ class LinkDownloader(
         error: Throwable,
         hasSession: Boolean,
     ): String {
-        val rawMessage = error.message.orEmpty()
+        val rawMessage = DownloadFailureText.from(error, serviceFailureHint(service))
 
         return when {
             service == DownloadService.YOUTUBE &&
@@ -473,6 +578,8 @@ class LinkDownloader(
     private companion object {
         const val ARCHIVE_CONNECT_TIMEOUT_MS = 20_000
         const val ARCHIVE_READ_TIMEOUT_MS = 60_000
+        const val ARCHIVE_PROBE_TIMEOUT_MS = 5_000
         const val ARCHIVE_USER_AGENT = "LuxMusic/Android"
+        const val TAG = "LuxMusicDownload"
     }
 }

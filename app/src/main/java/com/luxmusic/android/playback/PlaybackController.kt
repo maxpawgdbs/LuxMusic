@@ -226,14 +226,7 @@ internal class PlaybackController(
         player.replaceMediaItem(
             index,
             currentItem.buildUpon()
-                .setMediaMetadata(
-                    currentItem.mediaMetadata.buildUpon()
-                        .setTitle(updatedTrack.title)
-                        .setArtist(updatedTrack.artist)
-                        .setAlbumTitle(updatedTrack.album)
-                        .setArtworkUri(updatedTrack.artworkPath?.let(::File)?.toUri())
-                        .build(),
-                )
+                .setMediaMetadata(mediaMetadata(updatedTrack))
                 .build(),
         )
         publishState()
@@ -350,17 +343,21 @@ internal class PlaybackController(
         return MediaItem.Builder()
             .setMediaId(track.id)
             .setUri(File(track.localPath).toUri())
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .setAlbumTitle(track.album)
-                    .setDurationMs(track.durationMs.takeIf { it > 0L })
-                    .setArtworkUri(track.artworkPath?.let(::File)?.toUri())
-                    .build(),
-            )
+            .setMediaMetadata(mediaMetadata(track))
             .build()
     }
+
+    private fun mediaMetadata(track: Track): MediaMetadata = MediaMetadata.Builder()
+        .setTitle(track.title)
+        .setArtist(track.artist)
+        .setAlbumTitle(track.album)
+        .setDurationMs(track.durationMs.takeIf { it > 0L })
+        .apply {
+            PlaybackArtwork.read(track.artworkPath)?.let { artwork ->
+                setArtworkData(artwork, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+            }
+        }
+        .build()
 
     private fun restorePlaybackState() {
         val savedIds = playbackPreferences.getString(KEY_QUEUE_IDS, null)

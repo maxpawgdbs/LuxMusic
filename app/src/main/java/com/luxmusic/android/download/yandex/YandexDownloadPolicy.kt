@@ -21,7 +21,11 @@ object YandexDownloadPolicy {
         val secret = xml.tagValue("s")
         require(isTrustedYandexHost(host)) { "Некорректный адрес аудиофайла." }
         require(path.startsWith('/') && !path.contains("..")) { "Некорректный путь аудиофайла." }
-        require(timestamp.all(Char::isDigit)) { "Некорректная отметка времени аудиофайла." }
+        // `ts` used to be a decimal Unix timestamp. Current Yandex responses may contain an
+        // opaque URL-safe token instead, so validating it as digits rejects otherwise valid
+        // tracks. Keep the security boundary (one non-empty path segment, no URL delimiters)
+        // without relying on the server's internal token format.
+        require(timestamp.matches(URL_SAFE_TIMESTAMP)) { "Некорректная отметка времени аудиофайла." }
         val signature = md5(SIGN_SALT + path.drop(1) + secret)
         return "https://$host/get-mp3/$signature/$timestamp$path"
     }
@@ -58,4 +62,5 @@ object YandexDownloadPolicy {
         .joinToString("") { "%02x".format(it) }
 
     private const val SIGN_SALT = "XGRlBW9FXlekgbPrRHuSiA"
+    private val URL_SAFE_TIMESTAMP = Regex("[A-Za-z0-9._~-]{1,160}")
 }

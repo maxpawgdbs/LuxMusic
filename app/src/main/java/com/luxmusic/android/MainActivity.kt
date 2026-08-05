@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luxmusic.android.ui.LuxMusicScreen
 import com.luxmusic.android.ui.theme.LuxMusicTheme
+import com.luxmusic.android.data.DownloadService
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
                 var pendingTrackArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingPlaylistArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingArtistArtworkName by rememberSaveable { mutableStateOf<String?>(null) }
+                var pendingCookieServiceName by rememberSaveable { mutableStateOf<String?>(null) }
                 val importLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments(),
                 ) { uris ->
@@ -55,6 +57,14 @@ class MainActivity : ComponentActivity() {
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission(),
                 ) { }
+                val cookiesLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument(),
+                ) { uri ->
+                    val service = pendingCookieServiceName
+                        ?.let { name -> runCatching { DownloadService.valueOf(name) }.getOrNull() }
+                    if (service != null) viewModel.importDownloadAccountCookies(service, uri)
+                    pendingCookieServiceName = null
+                }
                 val trackArtworkLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent(),
                 ) { uri ->
@@ -95,10 +105,10 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     viewModel.authBrowserRequests.collect { request ->
-                        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
-                            ClipData.newPlainText("Код Яндекс Музыки", request.userCode),
-                        )
                         runCatching {
+                            getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
+                                ClipData.newPlainText("Код Яндекс Музыки", request.userCode),
+                            )
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(request.url)))
                         }.onFailure {
                             snackbarHostState.showSnackbar(
@@ -167,12 +177,30 @@ class MainActivity : ComponentActivity() {
                     onDownloadUrlChange = viewModel::updateDownloadUrl,
                     onDownloadTitleChange = viewModel::updateDownloadTitle,
                     onDownloadLink = viewModel::downloadFromLink,
-                    onDownloadArchive = viewModel::downloadArchiveFromLink,
                     onConnectYandex = viewModel::connectYandexMusic,
                     onDisconnectYandex = viewModel::disconnectYandexMusic,
+                    onCaptureDownloadAccount = viewModel::captureDownloadAccountCookies,
+                    onImportDownloadCookies = { service ->
+                        pendingCookieServiceName = service.name
+                        runCatching { cookiesLauncher.launch(arrayOf("text/plain", "*/*")) }
+                            .onFailure { error ->
+                                pendingCookieServiceName = null
+                                uiScope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        error.message ?: "Не удалось открыть выбор cookies.txt.",
+                                    )
+                                }
+                            }
+                    },
+                    onClearDownloadAccount = viewModel::clearDownloadAccount,
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        viewModel.resumeYandexMusicAuthorization()
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -381,7 +381,7 @@ class YandexMusicHttpClient : YandexCatalogApi {
         const val CLIENT_ID = "23cabbbdc6cd418abb4b39c32c41195d"
         const val CLIENT_SECRET = "53bc75238f0c4d08a118e51fe9203300"
         const val MUSIC_CLIENT_HEADER = "YandexMusicAndroid/24023621"
-        const val USER_AGENT = "LuxMusic/0.6 Android"
+        const val USER_AGENT = "LuxMusic/6.0.1 Android"
         const val CONNECT_TIMEOUT_MS = 20_000
         const val READ_TIMEOUT_MS = 60_000
         const val MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -401,4 +401,9 @@ object YandexOAuthPolicy {
             description.orEmpty().contains("not yet authorized", ignoreCase = true) ||
             description.orEmpty().contains("authorization_pending", ignoreCase = true)
     }
+
+    fun isPendingUsable(
+        expiresAtEpochMs: Long,
+        nowEpochMs: Long = System.currentTimeMillis(),
+    ): Boolean = expiresAtEpochMs - nowEpochMs >= 1_000L
 }

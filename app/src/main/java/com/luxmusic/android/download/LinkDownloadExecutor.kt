@@ -104,16 +104,18 @@ internal class LinkDownloadExecutor(
                 attempt.label,
             )
 
+            val progressLimiter = DownloadProgressLimiter()
             backend.download(
                 requestUrl = attempt.requestUrl,
                 service = attempt.requestService,
                 session = session,
                 outputDir = workspace,
             ) { progress, _ ->
-                onStatus(
-                    (0.1f + progress.coerceIn(0f, 100f) / 100f * 0.85f).coerceIn(0f, 0.95f),
-                    defaultProgressMessage(attempt),
-                )
+                val mappedProgress =
+                    (0.1f + progress.coerceIn(0f, 100f) / 100f * 0.85f).coerceIn(0f, 0.95f)
+                if (progressLimiter.shouldPublish(mappedProgress)) {
+                    onStatus(mappedProgress, defaultProgressMessage(attempt))
+                }
             }
 
             val files = workspace.listFiles()?.toList().orEmpty()

@@ -50,6 +50,39 @@ class YandexDownloadPolicyTest {
     }
 
     @Test
+    fun acceptsCurrentOpaqueTimestampTokens() {
+        val xml = """
+            <download-info>
+              <host>storage.yandex.net</host>
+              <path>/track/file.mp3</path>
+              <ts>67d2a0f1_AZ-9.~</ts>
+              <s>secret</s>
+            </download-info>
+        """.trimIndent()
+
+        assertTrue(
+            YandexDownloadPolicy.buildDirectLink(xml)
+                .contains("/67d2a0f1_AZ-9.~/track/file.mp3"),
+        )
+    }
+
+    @Test
+    fun rejectsTimestampUrlInjection() {
+        val maliciousValues = listOf("abc/next", "abc?admin=true", "abc#fragment", "abc%2Fnext", "")
+        maliciousValues.forEach { timestamp ->
+            val xml = """
+                <download-info>
+                  <host>storage.yandex.net</host>
+                  <path>/track/file.mp3</path>
+                  <ts>$timestamp</ts>
+                  <s>secret</s>
+                </download-info>
+            """.trimIndent()
+            assertFails { YandexDownloadPolicy.buildDirectLink(xml) }
+        }
+    }
+
+    @Test
     fun rejectsUntrustedDownloadHostAndTraversal() {
         val maliciousHost = "<host>evil.example</host><path>/a.mp3</path><ts>1</ts><s>x</s>"
         val traversal = "<host>storage.yandex.net</host><path>/../a.mp3</path><ts>1</ts><s>x</s>"
@@ -94,6 +127,12 @@ class YandexDownloadPolicyTest {
             ),
         )
         assertFalse(YandexOAuthPolicy.isAuthorizationPending("access_denied", "User denied access"))
+    }
+
+    @Test
+    fun pendingDeviceAuthorizationRequiresAtLeastOneSecondRemaining() {
+        assertTrue(YandexOAuthPolicy.isPendingUsable(expiresAtEpochMs = 11_000L, nowEpochMs = 10_000L))
+        assertFalse(YandexOAuthPolicy.isPendingUsable(expiresAtEpochMs = 10_999L, nowEpochMs = 10_000L))
     }
 
     private fun option(codec: String, bitrate: Int, preview: Boolean = false) = YandexDownloadOption(

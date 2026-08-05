@@ -9,13 +9,31 @@ import org.json.JSONObject
 import java.io.File
 
 class MetadataExtractor(private val context: Context) {
-    fun fromFile(file: File, companionFiles: List<File> = emptyList()): ExtractedTrackMetadata {
+    fun fromFile(
+        file: File,
+        companionFiles: List<File> = emptyList(),
+        fallbackDurationMs: Long? = null,
+    ): ExtractedTrackMetadata {
         val retriever = MediaMetadataRetriever()
         val availableCompanions = buildCompanionList(file, companionFiles)
         val infoMetadata = findInfoJsonFile(file, availableCompanions)?.let(::readInfoMetadata)
 
         return try {
-            retriever.setDataSource(file.absolutePath)
+            val retrieverFailure = runCatching { retriever.setDataSource(file.absolutePath) }.exceptionOrNull()
+            if (retrieverFailure != null) {
+                val fallbackDuration = extractDurationWithMediaExtractor(file)
+                    ?: infoMetadata?.durationMs
+                    ?: fallbackDurationMs?.takeIf { it > 0L }
+                    ?: throw retrieverFailure
+                return ExtractedTrackMetadata(
+                    title = infoMetadata?.title,
+                    artist = infoMetadata?.artist,
+                    album = infoMetadata?.album,
+                    durationMs = fallbackDuration,
+                    artworkBytes = findArtworkFile(file, availableCompanions)?.safeArtworkBytes(),
+                    lyrics = findLyricsFile(file, availableCompanions)?.readText()?.let(::normalizeLyrics),
+                )
+            }
             val artworkBytes = retriever.embeddedPicture ?: findArtworkFile(file, availableCompanions)?.readBytes()
             val lyrics = findLyricsFile(file, availableCompanions)?.readText()?.let(::normalizeLyrics)
             val retrieverDurationMs = retriever
@@ -33,14 +51,19 @@ class MetadataExtractor(private val context: Context) {
                 durationMs = retrieverDurationMs
                     ?: extractDurationWithMediaExtractor(file)
                     ?: infoMetadata?.durationMs
+                    ?: fallbackDurationMs?.takeIf { it > 0L }
                     ?: 0L,
-                artworkBytes = artworkBytes,
+                artworkBytes = artworkBytes?.takeIf { it.size <= MAX_ARTWORK_BYTES },
                 lyrics = lyrics,
             )
         } finally {
             retriever.release()
         }
     }
+
+    private fun File.safeArtworkBytes(): ByteArray? = runCatching {
+        takeIf { length() in 1..MAX_ARTWORK_BYTES.toLong() }?.readBytes()
+    }.getOrNull()
 
     fun probeDurationMs(file: File, companionFiles: List<File> = emptyList()): Long {
         return fromFile(file, companionFiles).durationMs
@@ -173,4 +196,8 @@ class MetadataExtractor(private val context: Context) {
         val album: String?,
         val durationMs: Long?,
     )
+
+    private companion object {
+        const val MAX_ARTWORK_BYTES = 25 * 1024 * 1024
+    }
 }

@@ -6,8 +6,8 @@ plugins {
 val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
 val bundledSigningStorePassword = "luxmusic"
 val bundledSigningKeyAlias = "luxmusic-dev"
-val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.6"
-val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 600000
+val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "6.0.1"
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 6_001_000
 val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: baseVersionName
 
 android {
@@ -120,7 +120,9 @@ dependencies {
     testImplementation(files("libs/junit4.jar"))
     testRuntimeOnly(files("libs/junit4.jar"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:core-ktx:1.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:$composeUi")
 }
 
 tasks.register<JavaExec>("offlineUnitTest") {
@@ -150,12 +152,16 @@ tasks.register<JavaExec>("offlineUnitTest") {
         "com.luxmusic.android.download.DownloadPlannerTest",
         "com.luxmusic.android.download.DownloadMetadataResolverTest",
         "com.luxmusic.android.download.LinkDownloadExecutorTest",
+        "com.luxmusic.android.download.DownloadRuntimePolicyTest",
+        "com.luxmusic.android.download.RemoteDownloadClassifierTest",
+        "com.luxmusic.android.download.DownloadFailureTextTest",
         "com.luxmusic.android.download.YtDlpMediaDownloadBackendTest",
         "com.luxmusic.android.download.yandex.YandexMusicUrlParserTest",
         "com.luxmusic.android.download.yandex.YandexCatalogResolverTest",
         "com.luxmusic.android.download.yandex.YandexDownloadPolicyTest",
         "com.luxmusic.android.data.ImportFileRulesTest",
         "com.luxmusic.android.data.ArtistCollectionsTest",
+        "com.luxmusic.android.playback.PlaybackArtworkTest",
         "com.luxmusic.android.playback.PlaybackModePolicyTest",
         "com.luxmusic.android.playback.PlaybackTaskPolicyTest",
     )

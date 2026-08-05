@@ -7,13 +7,17 @@ import com.luxmusic.android.data.DownloadedTrackImport
 import com.luxmusic.android.data.LibraryStore
 import com.luxmusic.android.data.Track
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -32,6 +36,45 @@ data class YandexDownloadResult(
     val warnings: List<String>,
 )
 
+private data class PendingYandexAuthorization(
+    val deviceCode: String,
+    val userCode: String,
+    val verificationUrl: String,
+    val expiresAtEpochMs: Long,
+    val intervalSeconds: Long,
+) {
+    fun toDeviceCode(nowEpochMs: Long = System.currentTimeMillis()): YandexDeviceCode = YandexDeviceCode(
+        deviceCode = deviceCode,
+        userCode = userCode,
+        verificationUrl = verificationUrl,
+        expiresInSeconds = ((expiresAtEpochMs - nowEpochMs) / 1_000L).coerceAtLeast(1L),
+        intervalSeconds = intervalSeconds,
+    )
+
+    fun toAuthState(
+        statusMessage: String =
+            "Код сохранён. Подтвердите вход в браузере — ожидание продолжится в фоне.",
+        errorMessage: String? = null,
+    ): YandexAuthState = YandexAuthState(
+        isAuthorizing = true,
+        verificationUrl = verificationUrl,
+        userCode = userCode,
+        statusMessage = statusMessage,
+        errorMessage = errorMessage,
+    )
+
+    companion object {
+        fun from(code: YandexDeviceCode, nowEpochMs: Long = System.currentTimeMillis()) =
+            PendingYandexAuthorization(
+                deviceCode = code.deviceCode,
+                userCode = code.userCode,
+                verificationUrl = code.verificationUrl,
+                expiresAtEpochMs = nowEpochMs + code.expiresInSeconds * 1_000L,
+                intervalSeconds = code.intervalSeconds,
+            )
+    }
+}
+
 class YandexMusicDownloader(
     context: Context,
     private val libraryStore: LibraryStore,
@@ -39,12 +82,21 @@ class YandexMusicDownloader(
 ) {
     private val appContext = context.applicationContext
     private val tokenStore = YandexTokenStore(appContext)
-    private val mutableAuthState = MutableStateFlow(tokenStore.load()?.toAuthState() ?: YandexAuthState())
+    private val authorizationRequestMutex = Mutex()
+    private val authorizationPollingMutex = Mutex()
+    private val mutableAuthState = MutableStateFlow(tokenStore.authState())
     val authState: StateFlow<YandexAuthState> = mutableAuthState.asStateFlow()
 
-    suspend fun authorize(onCode: suspend (YandexDeviceCode) -> Unit): Result<Unit> =
-        withContext(Dispatchers.IO) {
+    suspend fun beginAuthorization(): Result<YandexDeviceCode> = withContext(Dispatchers.IO) {
+        authorizationRequestMutex.withLock {
             runCatching {
+                tokenStore.load()?.let {
+                    throw IllegalStateException("Аккаунт Яндекс Музыки уже подключён.")
+                }
+                tokenStore.loadPending()?.let { pending ->
+                    mutableAuthState.value = pending.toAuthState()
+                    return@runCatching pending.toDeviceCode()
+                }
                 mutableAuthState.value = YandexAuthState(
                     isAuthorizing = true,
                     statusMessage = "Получаем код подтверждения...",
@@ -53,38 +105,83 @@ class YandexMusicDownloader(
                     deviceId = tokenStore.deviceId,
                     deviceName = "LuxMusic — ${Build.MODEL.take(60)}",
                 )
-                mutableAuthState.value = YandexAuthState(
-                    isAuthorizing = true,
-                    verificationUrl = code.verificationUrl,
-                    userCode = code.userCode,
-                    statusMessage = "Код скопирован. Подтвердите вход в браузере — LuxMusic завершит подключение сам.",
-                )
-                onCode(code)
-
-                val deadline = System.currentTimeMillis() + code.expiresInSeconds * 1_000L
-                var token: YandexOAuthToken? = null
-                while (System.currentTimeMillis() < deadline && token == null) {
-                    delay(code.intervalSeconds * 1_000L)
-                    token = api.pollDeviceToken(code.deviceCode)
-                }
-                requireNotNull(token) { "Время подтверждения истекло. Запустите вход ещё раз." }
-                val accountName = api.validateAccount(token.accessToken)
-                tokenStore.save(token, accountName)
-                mutableAuthState.value = YandexAuthState(
-                    isConnected = true,
-                    accountName = accountName,
-                    statusMessage = "Аккаунт подключён. Доступны треки, альбомы и дискографии артистов.",
-                )
+                val pending = PendingYandexAuthorization.from(code)
+                tokenStore.savePending(pending)
+                mutableAuthState.value = pending.toAuthState()
+                code
             }.onFailure { error ->
+                if (error is CancellationException) throw error
                 mutableAuthState.value = YandexAuthState(
                     statusMessage = "Не удалось подключить Яндекс Музыку.",
                     errorMessage = error.userMessage("Ошибка авторизации Яндекс Музыки."),
                 )
             }
         }
+    }
+
+    suspend fun completePendingAuthorization(): Result<Unit> = withContext(Dispatchers.IO) {
+        authorizationPollingMutex.withLock {
+            runCatching {
+                tokenStore.load()?.let { stored ->
+                    mutableAuthState.value = stored.toAuthState()
+                    return@runCatching
+                }
+                val pending = tokenStore.loadPending()
+                    ?: error("Код подтверждения истёк. Начните подключение снова.")
+                mutableAuthState.value = pending.toAuthState()
+
+                var token: YandexOAuthToken? = null
+                while (YandexOAuthPolicy.isPendingUsable(pending.expiresAtEpochMs) && token == null) {
+                    delay(pending.intervalSeconds * 1_000L)
+                    token = try {
+                        api.pollDeviceToken(pending.deviceCode)
+                    } catch (_: IOException) {
+                        mutableAuthState.value = pending.toAuthState(
+                            statusMessage = "Нет сети. Продолжаем ждать подтверждение...",
+                        )
+                        null
+                    }
+                }
+                requireNotNull(token) { "Время подтверждения истекло. Запустите вход ещё раз." }
+                val accountName = api.validateAccount(token.accessToken)
+                tokenStore.save(token, accountName)
+                tokenStore.clearPending()
+                mutableAuthState.value = YandexAuthState(
+                    isConnected = true,
+                    accountName = accountName,
+                    statusMessage = "Аккаунт подключён. Доступны треки, альбомы и дискографии артистов.",
+                )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                val pending = tokenStore.loadPending()
+                if (pending == null || !YandexOAuthPolicy.isPendingUsable(pending.expiresAtEpochMs)) {
+                    tokenStore.clearPending()
+                }
+                mutableAuthState.value = pending
+                    ?.takeIf { YandexOAuthPolicy.isPendingUsable(it.expiresAtEpochMs) }
+                    ?.toAuthState(
+                        statusMessage = "Подтверждение не завершено. Можно продолжить ожидание.",
+                        errorMessage = error.userMessage("Ошибка авторизации Яндекс Музыки."),
+                    )
+                    ?: YandexAuthState(
+                        statusMessage = "Не удалось подключить Яндекс Музыку.",
+                        errorMessage = error.userMessage("Ошибка авторизации Яндекс Музыки."),
+                    )
+            }
+        }
+    }
+
+    fun hasPendingAuthorization(): Boolean = tokenStore.loadPending() != null
+
+    fun cancelAuthorization() {
+        tokenStore.clearPending()
+        mutableAuthState.value = tokenStore.load()?.toAuthState()
+            ?: YandexAuthState(statusMessage = "Подключение Яндекс Музыки отменено.")
+    }
 
     fun disconnect() {
         tokenStore.clear()
+        tokenStore.clearPending()
         api.accessToken = null
         mutableAuthState.value = YandexAuthState(statusMessage = "Аккаунт Яндекс Музыки отключён.")
     }
@@ -126,6 +223,7 @@ class YandexMusicDownloader(
                         title = track.title,
                         artist = track.artistNames,
                         album = track.albumTitle ?: "Синглы",
+                        durationMs = track.durationMs,
                         artworkBytes = artwork,
                         sourceUrl = sourceUrl,
                     )
@@ -292,6 +390,12 @@ private class YandexTokenStore(context: Context) {
             preferences.edit(commit = true) { putString(KEY_DEVICE_ID, id) }
         }
 
+    fun authState(): YandexAuthState {
+        return load()?.toAuthState()
+            ?: loadPending()?.toAuthState()
+            ?: YandexAuthState()
+    }
+
     fun load(): StoredYandexToken? {
         val raw = preferences.getString(KEY_TOKEN, null) ?: return null
         return runCatching {
@@ -315,6 +419,41 @@ private class YandexTokenStore(context: Context) {
         preferences.edit(commit = true) { putString(KEY_TOKEN, payload.toString()) }
     }
 
+    fun loadPending(): PendingYandexAuthorization? {
+        val raw = preferences.getString(KEY_PENDING, null) ?: return null
+        val pending = runCatching {
+            val root = JSONObject(raw)
+            PendingYandexAuthorization(
+                deviceCode = root.getString("deviceCode"),
+                userCode = root.getString("userCode"),
+                verificationUrl = root.getString("verificationUrl").also { url ->
+                    require(YandexOAuthPolicy.isTrustedVerificationUrl(url))
+                },
+                expiresAtEpochMs = root.getLong("expiresAtEpochMs"),
+                intervalSeconds = root.optLong("intervalSeconds", 5L).coerceIn(3L, 30L),
+            )
+        }.getOrNull()
+        if (pending == null || !YandexOAuthPolicy.isPendingUsable(pending.expiresAtEpochMs)) {
+            clearPending()
+            return null
+        }
+        return pending
+    }
+
+    fun savePending(pending: PendingYandexAuthorization) {
+        val payload = JSONObject()
+            .put("deviceCode", pending.deviceCode)
+            .put("userCode", pending.userCode)
+            .put("verificationUrl", pending.verificationUrl)
+            .put("expiresAtEpochMs", pending.expiresAtEpochMs)
+            .put("intervalSeconds", pending.intervalSeconds)
+        preferences.edit(commit = true) { putString(KEY_PENDING, payload.toString()) }
+    }
+
+    fun clearPending() {
+        preferences.edit(commit = true) { remove(KEY_PENDING) }
+    }
+
     fun updateAccountName(accountName: String) {
         val stored = load() ?: return
         val payload = JSONObject()
@@ -333,5 +472,6 @@ private class YandexTokenStore(context: Context) {
         const val PREFERENCES_NAME = "luxmusic_yandex_oauth"
         const val KEY_DEVICE_ID = "device_id"
         const val KEY_TOKEN = "oauth_token"
+        const val KEY_PENDING = "pending_authorization"
     }
 }

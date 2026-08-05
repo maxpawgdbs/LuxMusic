@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
 import com.luxmusic.android.data.ArtistCollections
+import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -87,9 +89,11 @@ internal fun LuxMusicRoot(
     onDownloadUrlChange: (String) -> Unit,
     onDownloadTitleChange: (String) -> Unit,
     onDownloadLink: (String, String, String?) -> Unit,
-    onDownloadArchive: (String, String?) -> Unit,
     onConnectYandex: () -> Unit,
     onDisconnectYandex: () -> Unit,
+    onCaptureDownloadAccount: (DownloadService, String?) -> Unit,
+    onImportDownloadCookies: (DownloadService) -> Unit,
+    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
@@ -114,6 +118,7 @@ internal fun LuxMusicRoot(
     var deleteTargetTrack by remember { mutableStateOf<Track?>(null) }
     var deleteTargetPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var removeFromPlaylistTarget by remember { mutableStateOf<Pair<Playlist, Track>?>(null) }
+    var accountLoginService by remember { mutableStateOf<DownloadService?>(null) }
 
     val openedPlaylist = remember(uiState.playlists, openedPlaylistId) {
         uiState.playlists.firstOrNull { it.id == openedPlaylistId }
@@ -238,6 +243,7 @@ internal fun LuxMusicRoot(
                                         LuxTab.ARTISTS -> Icons.Rounded.Groups
                                         LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
                                         LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
+                                        LuxTab.SETTINGS -> Icons.Rounded.Settings
                                     },
                                     contentDescription = tab.title(),
                                 )
@@ -406,17 +412,37 @@ internal fun LuxMusicRoot(
                                 playlistName,
                             )
                         },
-                        onDownloadArchive = { playlistName ->
-                            onDownloadArchive(uiState.downloadUrl, playlistName)
-                        },
+                        uiState = uiState,
+                    )
+                }
+
+                LuxTab.SETTINGS -> {
+                    LuxSettingsPage(
+                        contentPadding = paddingValues,
+                        uiState = uiState,
                         onConnectYandex = onConnectYandex,
                         onDisconnectYandex = onDisconnectYandex,
-                        uiState = uiState,
+                        onOpenDownloadAccount = { service ->
+                            accountLoginService = service
+                        },
+                        onImportDownloadCookies = onImportDownloadCookies,
+                        onClearDownloadAccount = onClearDownloadAccount,
                     )
                 }
             }
         }
         }
+    }
+
+    accountLoginService?.let { service ->
+        DownloadAccountLoginDialog(
+            service = service,
+            onDismiss = { accountLoginService = null },
+            onComplete = { userAgent ->
+                onCaptureDownloadAccount(service, userAgent)
+                accountLoginService = null
+            },
+        )
     }
 
     if (showImportDialog) {
@@ -772,6 +798,7 @@ private fun LuxTab.title(): String = when (this) {
     LuxTab.ARTISTS -> "Артисты"
     LuxTab.PLAYLISTS -> "Плейлисты"
     LuxTab.DOWNLOAD -> "Загрузка"
+    LuxTab.SETTINGS -> "Настройки"
 }
 
 private data class LuxDestination(

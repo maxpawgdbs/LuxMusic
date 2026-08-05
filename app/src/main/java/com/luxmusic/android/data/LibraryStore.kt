@@ -38,17 +38,22 @@ class LibraryStore(private val context: Context) {
     val snapshot: StateFlow<LibrarySnapshot> = mutableSnapshot
 
     suspend fun importUris(uris: List<Uri>): List<Track> = withContext(Dispatchers.IO) {
-        buildList {
-            for (uri in uris) {
-                if (isZipUri(uri)) {
-                    addAll(runCatching { importZipUriInternal(uri) }.getOrDefault(emptyList()))
-                } else {
-                    runCatching { importUriInternal(uri) }
-                        .getOrNull()
-                        ?.let(::add)
-                }
+        val imported = mutableListOf<Track>()
+        var firstError: Throwable? = null
+        for (uri in uris) {
+            runCatching {
+                if (isZipUri(uri)) importZipUriInternal(uri) else listOfNotNull(importUriInternal(uri))
+            }.onSuccess(imported::addAll).onFailure { error ->
+                if (firstError == null) firstError = error
             }
         }
+        if (imported.isEmpty() && firstError != null) {
+            throw IllegalArgumentException(
+                firstError.safeImportMessage("Не удалось прочитать выбранный файл."),
+                firstError,
+            )
+        }
+        imported
     }
 
     suspend fun importDownloadedFiles(
@@ -56,6 +61,7 @@ class LibraryStore(private val context: Context) {
         sourceUrl: String?,
         companionResolver: (File) -> List<File>,
     ): List<Track> = withContext(Dispatchers.IO) {
+        var firstError: Throwable? = null
         val preparedTracks = buildList {
             audioFiles.forEach { audio ->
                 runCatching {
@@ -65,14 +71,17 @@ class LibraryStore(private val context: Context) {
                         sourceUrl = sourceUrl,
                         companionFiles = companionResolver(audio),
                     )
-                }.getOrNull()?.let(::add)
+                }.onFailure { error -> if (firstError == null) firstError = error }
+                    .getOrNull()?.let(::add)
             }
         }
+        if (preparedTracks.isEmpty() && firstError != null) throw firstError
         persistImportedTracks(preparedTracks)
     }
 
     suspend fun importDownloadedTracks(items: List<DownloadedTrackImport>): List<DownloadedTrackImportResult> =
         withContext(Dispatchers.IO) {
+            var firstError: Throwable? = null
             val preparedTracks = buildList {
                 items.forEach { item ->
                     runCatching {
@@ -83,9 +92,11 @@ class LibraryStore(private val context: Context) {
                             companionFiles = emptyList(),
                             metadataOverride = item,
                         )
-                    }.getOrNull()?.let(::add)
+                    }.onFailure { error -> if (firstError == null) firstError = error }
+                        .getOrNull()?.let(::add)
                 }
             }
+            if (preparedTracks.isEmpty() && firstError != null) throw firstError
             val persisted = persistImportedTracks(preparedTracks.map { it.second })
             preparedTracks.zip(persisted).map { (prepared, track) ->
                 DownloadedTrackImportResult(prepared.first, track)
@@ -348,11 +359,12 @@ class LibraryStore(private val context: Context) {
         }.lowercase()
         val sourceFile = File(tracksDir, "incoming-${UUID.randomUUID()}.$extension")
 
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            sourceFile.outputStream().use { output -> input.copyTo(output) }
-        } ?: return null
-
         return try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                sourceFile.outputStream().use { output ->
+                    copyWithLimit(input, output, MAX_LOCAL_AUDIO_BYTES, "Аудиофайл слишком большой.")
+                }
+            } ?: return null
             importFileInternal(
                 sourceFile = sourceFile,
                 displayName = displayName,
@@ -376,6 +388,8 @@ class LibraryStore(private val context: Context) {
         val preparedTracks = mutableListOf<Track>()
         var entriesRead = 0
         var totalBytes = 0L
+        var stoppedError: Throwable? = null
+        var firstEntryError: Throwable? = null
 
         BufferedInputStream(source).use { buffered ->
             ZipInputStream(buffered).use { zip ->
@@ -426,6 +440,8 @@ class LibraryStore(private val context: Context) {
                                         sourceUrl = sourceUrl,
                                         companionFiles = emptyList(),
                                     )
+                                }.onFailure { error ->
+                                    if (firstEntryError == null) firstEntryError = error
                                 }.getOrNull()?.let(preparedTracks::add)
                             } finally {
                                 temporaryFile.delete()
@@ -448,12 +464,22 @@ class LibraryStore(private val context: Context) {
                         }
                         zip.closeEntry()
                     }
-                } catch (_: IOException) {
-                    // Keep tracks already imported from a readable prefix of a damaged archive.
-                } catch (_: IllegalArgumentException) {
-                    // Keep tracks already imported from a valid prefix and stop on unsafe input.
+                } catch (error: IOException) {
+                    stoppedError = error
+                } catch (error: IllegalArgumentException) {
+                    stoppedError = error
                 }
             }
+        }
+        if (preparedTracks.isEmpty()) {
+            val cause = firstEntryError ?: stoppedError
+            if (cause != null) {
+                throw IllegalArgumentException(
+                    cause.safeImportMessage("ZIP-архив повреждён или содержит неподдерживаемые файлы."),
+                    cause,
+                )
+            }
+            throw IllegalArgumentException("В ZIP-архиве не найдено поддерживаемых аудиофайлов.")
         }
         return persistImportedTracks(preparedTracks)
     }
@@ -487,7 +513,11 @@ class LibraryStore(private val context: Context) {
         var artworkPath: String? = null
         return try {
             sourceFile.copyTo(targetAudio, overwrite = true)
-            val metadata = metadataExtractor.fromFile(sourceFile, companionFiles)
+            val metadata = metadataExtractor.fromFile(
+                sourceFile,
+                companionFiles,
+                fallbackDurationMs = metadataOverride?.durationMs,
+            )
             artworkPath = (metadataOverride?.artworkBytes ?: metadata.artworkBytes)?.let { bytes ->
                 File(artworksDir, "$id.jpg").also { artworkFile ->
                     artworkFile.writeBytes(bytes)
@@ -583,6 +613,30 @@ class LibraryStore(private val context: Context) {
                 }
             }
     }
+
+    private fun copyWithLimit(
+        input: InputStream,
+        output: java.io.OutputStream,
+        limitBytes: Long,
+        limitMessage: String,
+    ) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            require(total <= limitBytes) { limitMessage }
+            output.write(buffer, 0, read)
+        }
+        require(total > 0L) { "Выбранный файл пуст." }
+    }
+
+    private fun Throwable.safeImportMessage(fallback: String): String = message
+        ?.replace(Regex("https?://\\S+"), "[ссылка скрыта]")
+        ?.take(300)
+        ?.takeIf(String::isNotBlank)
+        ?: fallback
 
     private fun isZipUri(uri: Uri): Boolean {
         val displayName = queryDisplayName(uri).orEmpty()
@@ -753,6 +807,7 @@ class LibraryStore(private val context: Context) {
         const val MAX_ARTWORK_SOURCE_BYTES = 25L * 1024L * 1024L
         const val MAX_ARTWORK_DIMENSION = 1_600
         const val ARTWORK_JPEG_QUALITY = 90
+        const val MAX_LOCAL_AUDIO_BYTES = 1L * 1_024L * 1_024L * 1_024L
     }
 
 }

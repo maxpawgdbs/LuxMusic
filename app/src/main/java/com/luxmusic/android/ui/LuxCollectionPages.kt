@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.data.ArtistCollections
+import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -938,47 +939,26 @@ internal fun LuxQueuePage(
 }
 
 @Composable
-internal fun LuxDownloadPage(
+internal fun LuxSettingsPage(
     contentPadding: PaddingValues,
-    url: String,
-    onUrlChange: (String) -> Unit,
-    title: String,
-    onTitleChange: (String) -> Unit,
-    onImportClick: () -> Unit,
-    onDownload: (String?) -> Unit,
-    onDownloadArchive: (String?) -> Unit,
+    uiState: LuxMusicUiState,
     onConnectYandex: () -> Unit,
     onDisconnectYandex: () -> Unit,
-    uiState: LuxMusicUiState,
+    onOpenDownloadAccount: (DownloadService) -> Unit,
+    onImportDownloadCookies: (DownloadService) -> Unit,
+    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
-    var createPlaylist by rememberSaveable { mutableStateOf(false) }
-    var playlistName by rememberSaveable { mutableStateOf("") }
+    val youtubeAccount = uiState.downloadAccounts
+        .firstOrNull { it.service == DownloadService.YOUTUBE }
 
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            FilledTonalButton(
-                onClick = onImportClick,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                colors = luxTonalButtonColors(),
-            ) {
-                Icon(Icons.Rounded.UploadFile, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Выбрать аудиофайлы или ZIP")
-            }
-        }
-        item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = luxCardColors(),
-            ) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = luxCardColors()) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp),
+                    modifier = Modifier.fillMaxWidth().padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Row(
@@ -1003,8 +983,10 @@ internal fun LuxDownloadPage(
                                 )
                             }
                         }
-                        if (uiState.yandexAuth.isConnected) {
-                            TextButton(onClick = onDisconnectYandex) { Text("Отключить") }
+                        if (uiState.yandexAuth.isConnected || uiState.yandexAuth.isAuthorizing) {
+                            TextButton(onClick = onDisconnectYandex) {
+                                Text(if (uiState.yandexAuth.isAuthorizing) "Отменить" else "Отключить")
+                            }
                         }
                     }
                     Text(
@@ -1026,19 +1008,106 @@ internal fun LuxDownloadPage(
                     if (!uiState.yandexAuth.isConnected) {
                         Button(
                             onClick = onConnectYandex,
-                            enabled = !uiState.yandexAuth.isAuthorizing,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
                                 if (uiState.yandexAuth.isAuthorizing) {
-                                    "Ждём подтверждение в браузере"
+                                    "Открыть страницу подтверждения"
                                 } else {
-                                    "Подключить одной ссылкой"
+                                    "Подключить Яндекс Музыку"
                                 },
                             )
                         }
                     }
                 }
+            }
+        }
+        item {
+            ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = luxCardColors()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (youtubeAccount?.isConnected == true) {
+                            Icon(
+                                Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("YouTube", style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                if (youtubeAccount?.isConnected == true) "Аккаунт подключён" else "Без аккаунта",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (youtubeAccount?.isConnected == true) {
+                            TextButton(onClick = { onClearDownloadAccount(DownloadService.YOUTUBE) }) {
+                                Text("Отключить")
+                            }
+                        }
+                    }
+                    Text(
+                        "Вход помогает при возрастных ограничениях и ответах YouTube 429.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (youtubeAccount?.isConnected != true) {
+                        Button(
+                            onClick = { onOpenDownloadAccount(DownloadService.YOUTUBE) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Войти в YouTube")
+                        }
+                        OutlinedButton(
+                            onClick = { onImportDownloadCookies(DownloadService.YOUTUBE) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Импортировать cookies.txt")
+                        }
+                    }
+                }
+            }
+        }
+        item { LuxTelegramBanner() }
+    }
+}
+
+@Composable
+internal fun LuxDownloadPage(
+    contentPadding: PaddingValues,
+    url: String,
+    onUrlChange: (String) -> Unit,
+    title: String,
+    onTitleChange: (String) -> Unit,
+    onImportClick: () -> Unit,
+    onDownload: (String?) -> Unit,
+    uiState: LuxMusicUiState,
+) {
+    var createPlaylist by rememberSaveable { mutableStateOf(false) }
+    var playlistName by rememberSaveable { mutableStateOf("") }
+
+    LazyColumn(
+        contentPadding = pagePadding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            FilledTonalButton(
+                onClick = onImportClick,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                colors = luxTonalButtonColors(),
+            ) {
+                Icon(Icons.Rounded.UploadFile, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Загрузить файл")
             }
         }
         item {
@@ -1052,7 +1121,7 @@ internal fun LuxDownloadPage(
                         .padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
+                    Text("Загрузить по ссылке", style = MaterialTheme.typography.titleLarge)
                     OutlinedTextField(
                         value = url,
                         onValueChange = onUrlChange,
@@ -1113,21 +1182,7 @@ internal fun LuxDownloadPage(
                     ) {
                         Icon(Icons.Rounded.DownloadForOffline, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (uiState.download.isRunning) "Загрузка..." else "Скачать")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            onDownloadArchive(playlistName.trim().takeIf { createPlaylist })
-                        },
-                        enabled = !uiState.download.isRunning &&
-                            url.isNotBlank() &&
-                            (!createPlaylist || playlistName.isNotBlank()),
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                    ) {
-                        Icon(Icons.Rounded.DownloadForOffline, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Скачать ZIP по прямой ссылке")
+                        Text(if (uiState.download.isRunning) "Загрузка..." else "Загрузить по ссылке")
                     }
                     if (uiState.download.isRunning) {
                         LinearProgressIndicator(
