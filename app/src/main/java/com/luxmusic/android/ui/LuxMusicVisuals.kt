@@ -8,23 +8,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
-import com.luxmusic.android.ui.theme.CloudWhite
 import com.luxmusic.android.ui.theme.Coral
 import com.luxmusic.android.ui.theme.Emerald
 import com.luxmusic.android.ui.theme.Honey
@@ -60,6 +58,7 @@ internal fun DecorativeBackground() {
 @Composable
 internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
     val bitmap = remember(artworkPath) { artworkPath?.let(::loadBitmapFromPath) }
+    val shape = MaterialTheme.shapes.large
 
     if (bitmap != null) {
         Image(
@@ -67,16 +66,19 @@ internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = modifier
-                .clip(RoundedCornerShape(24.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
+                .clip(shape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
         )
     } else {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(24.dp))
+                .clip(shape)
                 .background(
                     Brush.linearGradient(
-                        listOf(Honey.copy(alpha = 0.75f), Coral.copy(alpha = 0.6f)),
+                        listOf(
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.tertiaryContainer,
+                        ),
                     ),
                 ),
             contentAlignment = Alignment.Center,
@@ -84,7 +86,7 @@ internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
             Icon(
                 imageVector = Icons.Rounded.MusicNote,
                 contentDescription = null,
-                tint = CloudWhite,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(36.dp),
             )
         }

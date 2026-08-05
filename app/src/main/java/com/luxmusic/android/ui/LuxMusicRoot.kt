@@ -1,6 +1,7 @@
 package com.luxmusic.android.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
@@ -24,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
+import com.luxmusic.android.data.ArtistCollections
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -106,6 +110,7 @@ internal fun LuxMusicRoot(
     var playlistName by rememberSaveable { mutableStateOf("") }
     var deleteTargetTrack by remember { mutableStateOf<Track?>(null) }
     var deleteTargetPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var removeFromPlaylistTarget by remember { mutableStateOf<Pair<Playlist, Track>?>(null) }
 
     val openedPlaylist = remember(uiState.playlists, openedPlaylistId) {
         uiState.playlists.firstOrNull { it.id == openedPlaylistId }
@@ -115,7 +120,9 @@ internal fun LuxMusicRoot(
     }
     val openedArtistTracks = remember(uiState.library, openedArtistName) {
         val artist = openedArtistName
-        if (artist == null) emptyList() else uiState.library.filter { it.artist == artist }
+        if (artist == null) emptyList() else uiState.library.filter {
+            ArtistCollections.matches(it, artist)
+        }
     }
 
     LaunchedEffect(openedPlaylistId, uiState.playlists) {
@@ -123,6 +130,9 @@ internal fun LuxMusicRoot(
     }
     LaunchedEffect(playlistEditorId, uiState.playlists) {
         if (playlistEditorId != null && playlistEditor == null) playlistEditorId = null
+    }
+    LaunchedEffect(openedArtistName, openedArtistTracks) {
+        if (openedArtistName != null && openedArtistTracks.isEmpty()) openedArtistName = null
     }
 
     BackHandler(enabled = showQueue) { showQueue = false }
@@ -140,6 +150,17 @@ internal fun LuxMusicRoot(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            if (
+                !showQueue &&
+                uiState.selectedTab == LuxTab.PLAYLISTS &&
+                openedPlaylist == null
+            ) {
+                FloatingActionButton(onClick = { showCreatePlaylist = true }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Создать плейлист")
+                }
+            }
+        },
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -197,7 +218,7 @@ internal fun LuxMusicRoot(
         },
         bottomBar = {
             if (!showQueue) {
-                NavigationBar {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     LuxTab.entries.forEach { tab ->
                         NavigationBarItem(
                             selected = uiState.selectedTab == tab,
@@ -224,7 +245,17 @@ internal fun LuxMusicRoot(
             }
         },
     ) { paddingValues ->
-        if (showQueue) {
+        val destination = LuxDestination(
+            tab = uiState.selectedTab,
+            showQueue = showQueue,
+            playlistId = openedPlaylistId,
+            artistName = openedArtistName,
+        )
+        Crossfade(
+            targetState = destination,
+            label = "section transition",
+        ) { page ->
+        if (page.showQueue) {
             LuxQueuePage(
                 contentPadding = paddingValues,
                 tracks = queueTracks,
@@ -232,7 +263,7 @@ internal fun LuxMusicRoot(
                 onSelectTrack = onSelectQueueTrack,
             )
         } else {
-            when (uiState.selectedTab) {
+            when (page.tab) {
                 LuxTab.HOME -> {
                     LuxHomePage(
                         contentPadding = paddingValues,
@@ -278,7 +309,7 @@ internal fun LuxMusicRoot(
                 }
 
                 LuxTab.ARTISTS -> {
-                    val artist = openedArtistName
+                    val artist = page.artistName
                     if (artist == null) {
                         LuxArtistsPage(
                             contentPadding = paddingValues,
@@ -286,16 +317,25 @@ internal fun LuxMusicRoot(
                             artistArtworkPaths = uiState.artistArtworkPaths,
                             currentArtist = uiState.currentTrack?.artist,
                             onOpenArtist = { openedArtistName = it },
+                            onPlayArtist = onPlayArtistTrack,
                         )
                     } else {
+                        val destinationArtistTracks = remember(uiState.library, artist) {
+                            uiState.library.filter { ArtistCollections.matches(it, artist) }
+                        }
                         LuxArtistDetailPage(
                             contentPadding = paddingValues,
                             artist = artist,
                             artworkPath = uiState.artistArtworkPaths.entries
                                 .firstOrNull { it.key.equals(artist, ignoreCase = true) }
                                 ?.value,
-                            tracks = openedArtistTracks,
+                            tracks = destinationArtistTracks,
                             currentTrackId = uiState.currentTrack?.id,
+                            onPlayArtist = {
+                                destinationArtistTracks.firstOrNull()?.let { track ->
+                                    onPlayArtistTrack(artist, track.id)
+                                }
+                            },
                             onPlayTrack = { trackId -> onPlayArtistTrack(artist, trackId) },
                             onShowLyrics = { lyricsTrack = it },
                             onAddToPlaylist = { playlistTargetTrack = it },
@@ -312,14 +352,15 @@ internal fun LuxMusicRoot(
                 }
 
                 LuxTab.PLAYLISTS -> {
-                    if (openedPlaylist != null) {
+                    val destinationPlaylist = uiState.playlists.firstOrNull { it.id == page.playlistId }
+                    if (destinationPlaylist != null) {
                         LuxPlaylistDetailPage(
                             contentPadding = paddingValues,
-                            playlist = openedPlaylist,
-                            tracks = openedPlaylist.trackIds.mapNotNull(tracksById::get),
+                            playlist = destinationPlaylist,
+                            tracks = destinationPlaylist.trackIds.mapNotNull(tracksById::get),
                             currentTrackId = uiState.currentTrack?.id,
-                            onPlayPlaylist = { onPlayPlaylist(openedPlaylist.id) },
-                            onPlayTrack = { trackId -> onPlayPlaylistTrack(openedPlaylist.id, trackId) },
+                            onPlayPlaylist = { onPlayPlaylist(destinationPlaylist.id) },
+                            onPlayTrack = { trackId -> onPlayPlaylistTrack(destinationPlaylist.id, trackId) },
                             onShowLyrics = { lyricsTrack = it },
                             onAddToPlaylist = { playlistTargetTrack = it },
                             onEdit = { track ->
@@ -327,13 +368,13 @@ internal fun LuxMusicRoot(
                                 editTitle = track.title
                                 editArtist = track.artist
                             },
-                            onRemoveTrack = { trackId ->
-                                onRemoveTrackFromPlaylist(openedPlaylist.id, trackId)
+                            onRemoveTrack = { track ->
+                                removeFromPlaylistTarget = destinationPlaylist to track
                             },
                             onDeleteTrack = { deleteTargetTrack = it },
-                            onAddTracks = { playlistEditorId = openedPlaylist.id },
-                            onPickArtwork = { onPickPlaylistArtwork(openedPlaylist.id) },
-                            onDeletePlaylist = { deleteTargetPlaylist = openedPlaylist },
+                            onAddTracks = { playlistEditorId = destinationPlaylist.id },
+                            onPickArtwork = { onPickPlaylistArtwork(destinationPlaylist.id) },
+                            onDeletePlaylist = { deleteTargetPlaylist = destinationPlaylist },
                         )
                     } else {
                         LuxPlaylistsPage(
@@ -343,7 +384,6 @@ internal fun LuxMusicRoot(
                             activePlaylistId = uiState.playback.activePlaylistId,
                             onOpenPlaylist = { openedPlaylistId = it },
                             onPlayPlaylist = onPlayPlaylist,
-                            onCreatePlaylist = { showCreatePlaylist = true },
                         )
                     }
                 }
@@ -367,6 +407,7 @@ internal fun LuxMusicRoot(
                     )
                 }
             }
+        }
         }
     }
 
@@ -570,7 +611,7 @@ internal fun LuxMusicRoot(
                                         playlistTargetTrack = null
                                     },
                                 shape = MaterialTheme.shapes.large,
-                                color = MaterialTheme.colorScheme.surface,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 tonalElevation = 2.dp,
                             ) {
                                 Row(
@@ -619,7 +660,7 @@ internal fun LuxMusicRoot(
                                     .fillMaxWidth()
                                     .clickable { onAddTrackToPlaylist(playlist.id, track.id) },
                                 shape = MaterialTheme.shapes.large,
-                                color = MaterialTheme.colorScheme.surface,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 tonalElevation = 2.dp,
                             ) {
                                 Column(
@@ -646,6 +687,29 @@ internal fun LuxMusicRoot(
             },
             confirmButton = {
                 TextButton(onClick = { playlistEditorId = null }) { Text("Готово") }
+            },
+        )
+    }
+
+    removeFromPlaylistTarget?.let { (playlist, track) ->
+        AlertDialog(
+            onDismissRequest = { removeFromPlaylistTarget = null },
+            title = { Text("Удалить из плейлиста?") },
+            text = {
+                Text("«${track.title}» будет удалён только из плейлиста «${playlist.name}».")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onRemoveTrackFromPlaylist(playlist.id, track.id)
+                        removeFromPlaylistTarget = null
+                    },
+                ) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { removeFromPlaylistTarget = null }) { Text("Отмена") }
             },
         )
     }
@@ -701,3 +765,10 @@ private fun LuxTab.title(): String = when (this) {
     LuxTab.PLAYLISTS -> "Плейлисты"
     LuxTab.DOWNLOAD -> "Загрузка"
 }
+
+private data class LuxDestination(
+    val tab: LuxTab,
+    val showQueue: Boolean,
+    val playlistId: String?,
+    val artistName: String?,
+)

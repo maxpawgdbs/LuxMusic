@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           BASE_VERSION="$(grep '^luxmusic.baseVersion=' gradle.properties | cut -d= -f2)"
-          VERSION_CODE="$((500100 + GITHUB_RUN_NUMBER))"
+          VERSION_CODE="$((500200 + GITHUB_RUN_NUMBER))"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION_NAME="${BASE_VERSION}"
             RELEASE_TAG="${GITHUB_REF_NAME}"

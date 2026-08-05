@@ -141,14 +141,14 @@ internal fun LuxTelegramBanner() {
 
 @Composable
 internal fun luxCardColors() = CardDefaults.elevatedCardColors(
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     contentColor = MaterialTheme.colorScheme.onSurface,
 )
 
 @Composable
 internal fun luxPrimaryButtonColors(): ButtonColors = ButtonDefaults.buttonColors(
     containerColor = MaterialTheme.colorScheme.primary,
-    contentColor = Color.White,
+    contentColor = MaterialTheme.colorScheme.onPrimary,
     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 )
@@ -164,7 +164,7 @@ internal fun luxTonalButtonColors(): ButtonColors = ButtonDefaults.filledTonalBu
 @Composable
 internal fun luxFilledIconButtonColors(): IconButtonColors = IconButtonDefaults.filledIconButtonColors(
     containerColor = MaterialTheme.colorScheme.primary,
-    contentColor = Color.White,
+    contentColor = MaterialTheme.colorScheme.onPrimary,
     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 )

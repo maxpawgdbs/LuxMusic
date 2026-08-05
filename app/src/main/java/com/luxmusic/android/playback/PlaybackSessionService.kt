@@ -1,6 +1,7 @@
 package com.luxmusic.android.playback
 
 import android.content.Intent
+import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
@@ -22,6 +23,7 @@ class PlaybackSessionService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "PlaybackSessionService created")
         val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
             .setChannelId(NOTIFICATION_CHANNEL_ID)
             .setChannelName(R.string.playback_notification_channel)
@@ -31,14 +33,16 @@ class PlaybackSessionService : MediaSessionService() {
         setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_ALWAYS)
 
         playbackController = PlaybackController(
-            context = this,
+            service = this,
             libraryStore = luxApp.libraryStore,
             stateSink = luxApp.playbackGateway::publish,
         )
         addSession(playbackController.mediaSession())
+        Log.i(TAG, "MediaSession registered in the foreground playback service")
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
+        Log.i(TAG, "Controller connected: ${controllerInfo.packageName}")
         return playbackController.mediaSession()
     }
 
@@ -53,14 +57,19 @@ class PlaybackSessionService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (playbackController.shouldRemainWhenTaskRemoved()) return
+        if (playbackController.shouldRemainWhenTaskRemoved()) {
+            Log.i(TAG, "Task removed while playing; foreground service remains active")
+            return
+        }
 
+        Log.i(TAG, "Task removed while idle; stopping service and removing notification")
         playbackController.stopPlayback()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "PlaybackSessionService destroyed")
         if (::playbackController.isInitialized) {
             removeSession(playbackController.mediaSession())
             playbackController.release()
@@ -144,5 +153,6 @@ class PlaybackSessionService : MediaSessionService() {
         internal const val EXTRA_SEEK_FRACTION = "seek_fraction"
 
         private const val NOTIFICATION_CHANNEL_ID = "luxmusic_playback"
+        private const val TAG = "LuxPlayback"
     }
 }

@@ -1,5 +1,7 @@
 package com.luxmusic.android.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -106,22 +108,22 @@ private fun LuxPlayerCard(
     var menuExpanded by remember(currentTrack?.id) { mutableStateOf(false) }
 
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        shape = MaterialTheme.shapes.extraLarge,
         colors = luxCardColors(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             if (currentTrack == null) {
                 Text("Выберите трек в библиотеке", style = MaterialTheme.typography.headlineSmall)
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
+                val trackActions: @Composable () -> Unit = {
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Rounded.MoreVert, contentDescription = "Действия с треком")
@@ -185,7 +187,7 @@ private fun LuxPlayerCard(
                 }
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                             ArtworkThumb(
                                 currentTrack.artworkPath,
                                 modifier = Modifier
@@ -195,18 +197,20 @@ private fun LuxPlayerCard(
                             LuxTrackMeta(
                                 track = currentTrack,
                                 queueTitle = uiState.playback.queueTitle,
+                                actions = trackActions,
                             )
                         }
                     } else {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(210.dp))
+                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(230.dp))
                             LuxTrackMeta(
                                 track = currentTrack,
                                 queueTitle = uiState.playback.queueTitle,
                                 modifier = Modifier.weight(1f),
+                                actions = trackActions,
                             )
                         }
                     }
@@ -247,6 +251,7 @@ private fun LuxPlayerCard(
                 ) {
                     FilledTonalIconButton(
                         onClick = onToggleShuffle,
+                        modifier = Modifier.size(48.dp),
                         colors = if (uiState.playback.shuffleEnabled) {
                             luxFilledIconButtonColors()
                         } else {
@@ -257,27 +262,37 @@ private fun LuxPlayerCard(
                     }
                     FilledTonalIconButton(
                         onClick = onSkipPrevious,
+                        modifier = Modifier.size(48.dp),
                         colors = luxTonalIconButtonColors(),
                     ) {
                         Icon(Icons.Rounded.SkipPrevious, contentDescription = "Предыдущий")
                     }
                     FilledIconButton(
                         onClick = onTogglePlayback,
+                        modifier = Modifier.size(64.dp),
                         colors = luxFilledIconButtonColors(),
                     ) {
-                        Icon(
-                            if (uiState.playback.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (uiState.playback.isPlaying) "Пауза" else "Играть",
-                        )
+                        Crossfade(
+                            targetState = uiState.playback.isPlaying,
+                            label = "playback button",
+                        ) { isPlaying ->
+                            Icon(
+                                if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                contentDescription = if (isPlaying) "Пауза" else "Играть",
+                                modifier = Modifier.size(32.dp),
+                            )
+                        }
                     }
                     FilledTonalIconButton(
                         onClick = onSkipNext,
+                        modifier = Modifier.size(48.dp),
                         colors = luxTonalIconButtonColors(),
                     ) {
                         Icon(Icons.Rounded.SkipNext, contentDescription = "Следующий")
                     }
                     FilledTonalIconButton(
                         onClick = onCycleRepeat,
+                        modifier = Modifier.size(48.dp),
                         colors = if (uiState.playback.repeatMode != RepeatMode.NONE) {
                             luxFilledIconButtonColors()
                         } else {
@@ -304,13 +319,20 @@ private fun LuxTrackMeta(
     track: Track,
     queueTitle: String,
     modifier: Modifier = Modifier,
+    actions: @Composable () -> Unit,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        LuxMarqueeText(
-            text = track.title,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.headlineSmall,
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LuxMarqueeText(
+                text = track.title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            actions()
+        }
         Text(
             text = "${track.artist} • ${track.album}",
             style = MaterialTheme.typography.bodyLarge,

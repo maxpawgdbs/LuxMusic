@@ -3,6 +3,7 @@ package com.luxmusic.android.playback
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -27,15 +28,15 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 @UnstableApi
-class PlaybackController(
-    context: Context,
+internal class PlaybackController(
+    private val service: PlaybackSessionService,
     private val libraryStore: LibraryStore,
     private val stateSink: (PlaybackState) -> Unit,
 ) {
-    private val appContext = context.applicationContext
+    private val appContext = service.applicationContext
     private val playbackPreferences = appContext.getSharedPreferences(PLAYBACK_PREFERENCES, Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val player = ExoPlayer.Builder(appContext)
+    private val player = ExoPlayer.Builder(service)
         .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
         .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
         .build().apply {
@@ -53,12 +54,13 @@ class PlaybackController(
     private var currentPlaylistId: String? = null
     private var lastPersistedState: PersistedPlaybackState? = null
 
-    private val mediaSession = MediaSession.Builder(appContext, player)
+    private val mediaSession = MediaSession.Builder(service, player)
         .setId("luxmusic_media_session")
         .setPeriodicPositionUpdateEnabled(true)
         .build()
 
     init {
+        Log.i(TAG, "Created the sole Player and MediaSession for ${service::class.java.simpleName}")
         mediaSession.setSessionActivity(contentIntent())
 
         player.addListener(
@@ -291,6 +293,7 @@ class PlaybackController(
     )
 
     fun release() {
+        Log.i(TAG, "Releasing Player and MediaSession")
         scope.cancel()
         mediaSession.release()
         player.release()
@@ -454,6 +457,7 @@ class PlaybackController(
         const val KEY_PLAY_WHEN_READY = "play_when_ready"
         const val KEY_SHUFFLE = "shuffle"
         const val KEY_REPEAT_MODE = "repeat_mode"
+        const val TAG = "LuxPlayback"
     }
 }
 

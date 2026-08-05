@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
+import com.luxmusic.android.data.ArtistCollections
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -118,6 +119,7 @@ internal fun LuxLibraryPage(
                 modifier = Modifier.fillMaxWidth(),
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 label = { Text("Поиск") },
+                shape = MaterialTheme.shapes.extraLarge,
                 singleLine = true,
             )
         }
@@ -132,6 +134,11 @@ internal fun LuxLibraryPage(
         } else {
             items(tracks, key = Track::id) { track ->
                 val isCurrent = currentTrackId == track.id
+                val supportingColor = if (isCurrent) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 var menuExpanded by remember(track.id) { mutableStateOf(false) }
 
                 ElevatedCard(
@@ -140,7 +147,7 @@ internal fun LuxLibraryPage(
                         containerColor = if (isCurrent) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            MaterialTheme.colorScheme.surfaceContainerLow
                         },
                         contentColor = if (isCurrent) {
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -171,14 +178,14 @@ internal fun LuxLibraryPage(
                             Text(
                                 text = "${track.artist} • ${track.album}",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = supportingColor,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = formatDuration(track.durationMs),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = supportingColor,
                             )
                         }
                         Box {
@@ -249,7 +256,6 @@ internal fun LuxPlaylistsPage(
     activePlaylistId: String?,
     onOpenPlaylist: (String) -> Unit,
     onPlayPlaylist: (String) -> Unit,
-    onCreatePlaylist: () -> Unit,
 ) {
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
@@ -265,6 +271,11 @@ internal fun LuxPlaylistsPage(
         } else {
             items(playlists, key = Playlist::id) { playlist ->
                 val isActive = playlist.id == activePlaylistId
+                val supportingColor = if (isActive) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 val tracks = remember(playlist.trackIds, tracksById) {
                     playlist.trackIds.mapNotNull(tracksById::get)
                 }
@@ -273,11 +284,12 @@ internal fun LuxPlaylistsPage(
 
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.extraLarge,
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = if (isActive) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            MaterialTheme.colorScheme.surfaceContainerLow
                         },
                         contentColor = if (isActive) {
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -307,12 +319,13 @@ internal fun LuxPlaylistsPage(
                             Text(
                                 text = "${tracks.size} трек(ов) • ${formatCollectionDuration(tracks.sumOf(Track::durationMs))}",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = supportingColor,
                             )
                         }
                         FilledIconButton(
                             onClick = { onPlayPlaylist(playlist.id) },
                             enabled = tracks.isNotEmpty(),
+                            modifier = Modifier.size(48.dp),
                             colors = luxFilledIconButtonColors(),
                         ) {
                             Icon(Icons.Rounded.PlayArrow, contentDescription = "Играть")
@@ -322,18 +335,6 @@ internal fun LuxPlaylistsPage(
             }
         }
 
-        item {
-            Button(
-                onClick = onCreatePlaylist,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                colors = luxPrimaryButtonColors(),
-            ) {
-                Icon(Icons.Rounded.AddCircleOutline, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Создать плейлист")
-            }
-        }
         item { LuxTelegramBanner() }
     }
 }
@@ -349,7 +350,7 @@ internal fun LuxPlaylistDetailPage(
     onShowLyrics: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onEdit: (Track) -> Unit,
-    onRemoveTrack: (String) -> Unit,
+    onRemoveTrack: (Track) -> Unit,
     onDeleteTrack: (Track) -> Unit,
     onAddTracks: () -> Unit,
     onPickArtwork: () -> Unit,
@@ -362,6 +363,7 @@ internal fun LuxPlaylistDetailPage(
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
                 colors = luxCardColors(),
             ) {
                 Column(
@@ -402,23 +404,24 @@ internal fun LuxPlaylistDetailPage(
                         FilledIconButton(
                             onClick = onPlayPlaylist,
                             enabled = tracks.isNotEmpty(),
+                            modifier = Modifier.size(48.dp),
                             colors = luxFilledIconButtonColors(),
                         ) {
                             Icon(Icons.Rounded.PlayArrow, contentDescription = "Играть")
                         }
-                        OutlinedIconButton(onClick = onAddTracks) {
+                        OutlinedIconButton(onClick = onAddTracks, modifier = Modifier.size(48.dp)) {
                             Icon(
                                 Icons.AutoMirrored.Rounded.PlaylistAdd,
                                 contentDescription = "Добавить треки",
                             )
                         }
-                        OutlinedIconButton(onClick = onPickArtwork) {
+                        OutlinedIconButton(onClick = onPickArtwork, modifier = Modifier.size(48.dp)) {
                             Icon(
                                 Icons.Rounded.AddPhotoAlternate,
                                 contentDescription = "Выбрать обложку плейлиста",
                             )
                         }
-                        OutlinedIconButton(onClick = onDeletePlaylist) {
+                        OutlinedIconButton(onClick = onDeletePlaylist, modifier = Modifier.size(48.dp)) {
                             Icon(
                                 Icons.Rounded.DeleteOutline,
                                 contentDescription = "Удалить плейлист",
@@ -440,14 +443,20 @@ internal fun LuxPlaylistDetailPage(
         } else {
             items(tracks, key = Track::id) { track ->
                 val isCurrent = track.id == currentTrackId
+                val supportingColor = if (isCurrent) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 var menuExpanded by remember(track.id) { mutableStateOf(false) }
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.extraLarge,
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = if (isCurrent) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            MaterialTheme.colorScheme.surfaceContainerLow
                         },
                         contentColor = if (isCurrent) {
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -477,7 +486,7 @@ internal fun LuxPlaylistDetailPage(
                             Text(
                                 text = track.artist,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = supportingColor,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -529,7 +538,7 @@ internal fun LuxPlaylistDetailPage(
                                     },
                                     onClick = {
                                         menuExpanded = false
-                                        onRemoveTrack(track.id)
+                                        onRemoveTrack(track)
                                     },
                                 )
                                 DropdownMenuItem(
@@ -563,12 +572,10 @@ internal fun LuxArtistsPage(
     artistArtworkPaths: Map<String, String>,
     currentArtist: String?,
     onOpenArtist: (String) -> Unit,
+    onPlayArtist: (String, String) -> Unit,
 ) {
-    val artists = remember(tracks) {
-        tracks
-            .groupBy { it.artist.trim().ifBlank { "Неизвестный артист" } }
-            .toList()
-            .sortedBy { (artist, _) -> artist.lowercase() }
+    val artists = remember(tracks, artistArtworkPaths) {
+        ArtistCollections.build(tracks, artistArtworkPaths)
     }
 
     LazyColumn(
@@ -583,15 +590,23 @@ internal fun LuxArtistsPage(
                 )
             }
         } else {
-            items(artists, key = { it.first }) { (artist, artistTracks) ->
-                val isCurrent = artist.equals(currentArtist, ignoreCase = true)
+            items(artists, key = { it.name.lowercase() }) { artist ->
+                val isCurrent = currentArtist?.let {
+                    ArtistCollections.sameArtist(artist.name, it)
+                } == true
+                val supportingColor = if (isCurrent) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.extraLarge,
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = if (isCurrent) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            MaterialTheme.colorScheme.surfaceContainerLow
                         },
                         contentColor = if (isCurrent) {
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -599,7 +614,7 @@ internal fun LuxArtistsPage(
                             MaterialTheme.colorScheme.onSurface
                         },
                     ),
-                    onClick = { onOpenArtist(artist) },
+                    onClick = { onOpenArtist(artist.name) },
                 ) {
                     Row(
                         modifier = Modifier
@@ -609,25 +624,29 @@ internal fun LuxArtistsPage(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ArtworkThumb(
-                            artistArtworkPaths.entries
-                                .firstOrNull { it.key.equals(artist, ignoreCase = true) }
-                                ?.value
-                                ?: artistTracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
-                            modifier = Modifier.size(82.dp),
+                            artist.artworkPath,
+                            modifier = Modifier.size(92.dp),
                         )
                         Column(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
                             LuxMarqueeText(
-                                text = artist,
+                                text = artist.name,
                                 modifier = Modifier.fillMaxWidth(),
                                 style = MaterialTheme.typography.titleLarge,
                             )
                             Text(
-                                text = "${artistTracks.size} трек(ов)",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = "${artist.tracks.size} трек(ов) • ${formatCollectionDuration(artist.totalDurationMs)}",
+                                color = supportingColor,
                             )
+                        }
+                        FilledIconButton(
+                            onClick = { onPlayArtist(artist.name, artist.tracks.first().id) },
+                            modifier = Modifier.size(48.dp),
+                            colors = luxFilledIconButtonColors(),
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Играть артиста")
                         }
                     }
                 }
@@ -644,6 +663,7 @@ internal fun LuxArtistDetailPage(
     artworkPath: String?,
     tracks: List<Track>,
     currentTrackId: String?,
+    onPlayArtist: () -> Unit,
     onPlayTrack: (String) -> Unit,
     onShowLyrics: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
@@ -659,34 +679,56 @@ internal fun LuxArtistDetailPage(
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
                 colors = luxCardColors(),
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    ArtworkThumb(
-                        artworkPath
-                            ?: tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
-                        modifier = Modifier.size(108.dp),
-                    )
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        LuxMarqueeText(
-                            text = artist,
-                            modifier = Modifier.fillMaxWidth(),
-                            style = MaterialTheme.typography.headlineSmall,
+                        ArtworkThumb(
+                            artworkPath
+                                ?: tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
+                            modifier = Modifier.size(108.dp),
                         )
-                        Text(
-                            text = "${tracks.size} трек(ов)",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        OutlinedIconButton(onClick = onPickArtistArtwork) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            LuxMarqueeText(
+                                text = artist,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.headlineSmall,
+                            )
+                            Text(
+                                text = "${tracks.size} трек(ов) • ${formatCollectionDuration(tracks.sumOf(Track::durationMs))}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        FilledIconButton(
+                            onClick = onPlayArtist,
+                            enabled = tracks.isNotEmpty(),
+                            modifier = Modifier.size(48.dp),
+                            colors = luxFilledIconButtonColors(),
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Играть артиста")
+                        }
+                        OutlinedIconButton(
+                            onClick = onPickArtistArtwork,
+                            modifier = Modifier.size(48.dp),
+                        ) {
                             Icon(
                                 Icons.Rounded.AddPhotoAlternate,
                                 contentDescription = "Выбрать изображение артиста",
@@ -698,14 +740,20 @@ internal fun LuxArtistDetailPage(
         }
         items(tracks, key = Track::id) { track ->
             val isCurrent = track.id == currentTrackId
+            val supportingColor = if (isCurrent) {
+                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
             var menuExpanded by remember(track.id) { mutableStateOf(false) }
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = if (isCurrent) {
                         MaterialTheme.colorScheme.primaryContainer
                     } else {
-                        MaterialTheme.colorScheme.surface
+                        MaterialTheme.colorScheme.surfaceContainerLow
                     },
                 ),
                 onClick = { onPlayTrack(track.id) },
@@ -729,14 +777,14 @@ internal fun LuxArtistDetailPage(
                         )
                         Text(
                             text = track.album,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = supportingColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = formatDuration(track.durationMs),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = supportingColor,
                         )
                     }
                     Box {
@@ -827,13 +875,23 @@ internal fun LuxQueuePage(
         } else {
             items(tracks, key = Track::id) { track ->
                 val isCurrent = track.id == currentTrackId
+                val supportingColor = if (isCurrent) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = if (isCurrent) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            MaterialTheme.colorScheme.surfaceContainerLow
+                        },
+                        contentColor = if (isCurrent) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
                         },
                     ),
                     onClick = { onSelectTrack(track.id) },
@@ -858,7 +916,7 @@ internal fun LuxQueuePage(
                             Text(
                                 text = track.artist,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = supportingColor,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -866,7 +924,7 @@ internal fun LuxQueuePage(
                         Text(
                             text = formatDuration(track.durationMs),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = supportingColor,
                         )
                     }
                 }
@@ -925,6 +983,7 @@ internal fun LuxDownloadPage(
                         label = { Text("Ссылка") },
                         placeholder = { Text("https://...") },
                         leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
+                        shape = MaterialTheme.shapes.large,
                         enabled = !uiState.download.isRunning,
                         singleLine = true,
                     )
@@ -933,6 +992,7 @@ internal fun LuxDownloadPage(
                         onValueChange = onTitleChange,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Название песни (необязательно)") },
+                        shape = MaterialTheme.shapes.large,
                         enabled = !uiState.download.isRunning,
                         singleLine = true,
                     )
@@ -957,6 +1017,7 @@ internal fun LuxDownloadPage(
                             onValueChange = { playlistName = it },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Название плейлиста") },
+                            shape = MaterialTheme.shapes.large,
                             enabled = !uiState.download.isRunning,
                             singleLine = true,
                         )
