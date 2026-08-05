@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
                     onDownloadUrlChange = viewModel::updateDownloadUrl,
                     onDownloadTitleChange = viewModel::updateDownloadTitle,
                     onDownloadLink = viewModel::downloadFromLink,
+                    onDownloadArchive = viewModel::downloadArchiveFromLink,
                 )
             }
         }

@@ -3,6 +3,7 @@ package com.luxmusic.android.download
 import android.content.Context
 import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.DownloadState
+import com.luxmusic.android.data.ImportFileRules
 import com.luxmusic.android.data.LibraryStore
 import com.luxmusic.android.data.MetadataExtractor
 import com.luxmusic.android.data.Track
@@ -11,9 +12,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 class LinkDownloader(
     private val context: Context,
@@ -126,6 +129,127 @@ class LinkDownloader(
             )
 
             Result.failure(error)
+        }
+    }
+
+    suspend fun downloadArchive(url: String): Result<List<Track>> = withContext(Dispatchers.IO) {
+        val normalizedUrl = DownloadParsing.normalizeUserInput(url)
+        if (!DownloadParsing.isDownloadableUrl(normalizedUrl)) {
+            val error = IllegalArgumentException("Вставьте корректную прямую ссылку на ZIP-архив.")
+            mutableState.value = mutableState.value.copy(
+                isRunning = false,
+                progress = 0f,
+                statusMessage = "Ссылка на архив не распознана.",
+                errorMessage = error.message,
+            )
+            return@withContext Result.failure(error)
+        }
+        if (!normalizedUrl.startsWith("https://", ignoreCase = true)) {
+            val error = IllegalArgumentException("Для прямой загрузки ZIP используйте защищённую HTTPS-ссылку.")
+            mutableState.value = mutableState.value.copy(
+                isRunning = false,
+                progress = 0f,
+                statusMessage = "Нужна HTTPS-ссылка на архив.",
+                errorMessage = error.message,
+            )
+            return@withContext Result.failure(error)
+        }
+
+        mutableState.value = mutableState.value.copy(
+            isRunning = true,
+            progress = 0f,
+            statusMessage = "Скачиваем ZIP-архив...",
+            errorMessage = null,
+        )
+
+        val temporaryArchive = File(
+            context.cacheDir,
+            "luxmusic-archive-${UUID.randomUUID()}.zip",
+        )
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL(normalizedUrl).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                requestMethod = "GET"
+                connectTimeout = ARCHIVE_CONNECT_TIMEOUT_MS
+                readTimeout = ARCHIVE_READ_TIMEOUT_MS
+                setRequestProperty("User-Agent", ARCHIVE_USER_AGENT)
+                setRequestProperty("Accept", "application/zip, application/octet-stream;q=0.9, */*;q=0.1")
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                throw IllegalStateException("Сервер вернул HTTP $responseCode при скачивании архива.")
+            }
+
+            val contentLength = connection.contentLengthLong
+            if (contentLength > ImportFileRules.MAX_REMOTE_ZIP_BYTES) {
+                throw IllegalArgumentException("ZIP-архив больше допустимого размера 1 ГБ.")
+            }
+
+            var downloadedBytes = 0L
+            BufferedInputStream(connection.inputStream).use { input ->
+                temporaryArchive.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        downloadedBytes += read
+                        if (downloadedBytes > ImportFileRules.MAX_REMOTE_ZIP_BYTES) {
+                            throw IllegalArgumentException("ZIP-архив больше допустимого размера 1 ГБ.")
+                        }
+                        output.write(buffer, 0, read)
+                        if (contentLength > 0L) {
+                            mutableState.value = mutableState.value.copy(
+                                isRunning = true,
+                                progress = (downloadedBytes.toFloat() / contentLength.toFloat())
+                                    .coerceIn(0f, 0.9f),
+                                statusMessage = "Скачиваем ZIP-архив...",
+                                errorMessage = null,
+                            )
+                        }
+                    }
+                }
+            }
+
+            val header = ByteArray(4)
+            val headerBytes = temporaryArchive.inputStream().use { it.read(header) }
+            if (headerBytes != header.size || !ImportFileRules.hasZipSignature(header)) {
+                throw IllegalArgumentException("По ссылке получен не ZIP-архив.")
+            }
+
+            mutableState.value = mutableState.value.copy(
+                isRunning = true,
+                progress = 0.92f,
+                statusMessage = "Импортируем музыку из архива...",
+                errorMessage = null,
+            )
+            val tracks = libraryStore.importDownloadedArchive(
+                archiveFile = temporaryArchive,
+                sourceUrl = normalizedUrl,
+            )
+            if (tracks.isEmpty()) {
+                throw IllegalArgumentException("В ZIP-архиве нет поддерживаемых аудиофайлов.")
+            }
+
+            mutableState.value = mutableState.value.copy(
+                isRunning = false,
+                progress = 1f,
+                statusMessage = "Из ZIP-архива сохранено ${tracks.size} трек(ов).",
+                errorMessage = null,
+            )
+            Result.success(tracks)
+        } catch (error: Throwable) {
+            mutableState.value = mutableState.value.copy(
+                isRunning = false,
+                progress = 0f,
+                statusMessage = "Не удалось скачать или импортировать ZIP-архив.",
+                errorMessage = error.message ?: "Ошибка загрузки ZIP-архива.",
+            )
+            Result.failure(error)
+        } finally {
+            connection?.disconnect()
+            temporaryArchive.delete()
         }
     }
 
@@ -262,5 +386,11 @@ class LinkDownloader(
             const val TIMEOUT_MS = 15_000
             const val MAX_RESPONSE_CHARS = 1_000_000
         }
+    }
+
+    private companion object {
+        const val ARCHIVE_CONNECT_TIMEOUT_MS = 20_000
+        const val ARCHIVE_READ_TIMEOUT_MS = 60_000
+        const val ARCHIVE_USER_AGENT = "LuxMusic/Android"
     }
 }

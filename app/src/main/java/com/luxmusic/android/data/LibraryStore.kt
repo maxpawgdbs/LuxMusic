@@ -7,6 +7,7 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
+import android.util.AtomicFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,11 +16,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.io.BufferedInputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.IOException
 import java.util.UUID
 import java.util.zip.ZipInputStream
-import java.io.IOException
 
 class LibraryStore(private val context: Context) {
     private val writeMutex = Mutex()
@@ -29,6 +32,7 @@ class LibraryStore(private val context: Context) {
     private val tracksDir = File(storageRoot, "tracks").apply { mkdirs() }
     private val artworksDir = File(storageRoot, "artworks").apply { mkdirs() }
     private val manifestFile = File(storageRoot, "library.json")
+    private val manifestAtomicFile = AtomicFile(manifestFile)
 
     private val mutableSnapshot = MutableStateFlow(loadSnapshot())
     val snapshot: StateFlow<LibrarySnapshot> = mutableSnapshot
@@ -52,10 +56,10 @@ class LibraryStore(private val context: Context) {
         sourceUrl: String?,
         companionResolver: (File) -> List<File>,
     ): List<Track> = withContext(Dispatchers.IO) {
-        buildList {
-            for (audio in audioFiles) {
+        val preparedTracks = buildList {
+            audioFiles.forEach { audio ->
                 runCatching {
-                    importFileInternal(
+                    prepareImportedTrack(
                         sourceFile = audio,
                         displayName = audio.name,
                         sourceUrl = sourceUrl,
@@ -63,6 +67,17 @@ class LibraryStore(private val context: Context) {
                     )
                 }.getOrNull()?.let(::add)
             }
+        }
+        persistImportedTracks(preparedTracks)
+    }
+
+    suspend fun importDownloadedArchive(
+        archiveFile: File,
+        sourceUrl: String?,
+    ): List<Track> = withContext(Dispatchers.IO) {
+        require(archiveFile.isFile) { "ZIP-архив не найден." }
+        archiveFile.inputStream().use { source ->
+            importZipStream(source = source, sourceUrl = sourceUrl)
         }
     }
 
@@ -304,8 +319,15 @@ class LibraryStore(private val context: Context) {
     }
 
     private suspend fun importZipUriInternal(uri: Uri): List<Track> {
-        val imported = mutableListOf<Track>()
         val source = context.contentResolver.openInputStream(uri) ?: return emptyList()
+        return source.use { importZipStream(source = it, sourceUrl = null) }
+    }
+
+    private suspend fun importZipStream(
+        source: InputStream,
+        sourceUrl: String?,
+    ): List<Track> {
+        val preparedTracks = mutableListOf<Track>()
         var entriesRead = 0
         var totalBytes = 0L
 
@@ -315,7 +337,12 @@ class LibraryStore(private val context: Context) {
                     while (true) {
                         val entry = zip.nextEntry ?: break
                         entriesRead += 1
-                        if (entriesRead > ImportFileRules.MAX_ZIP_ENTRIES) break
+                        if (entriesRead > ImportFileRules.MAX_ZIP_ENTRIES) {
+                            throw IllegalArgumentException("В ZIP-архиве слишком много файлов.")
+                        }
+                        if (!entry.isDirectory && entry.size > ImportFileRules.MAX_ZIP_ENTRY_BYTES) {
+                            throw IllegalArgumentException("Файл в ZIP-архиве слишком большой.")
+                        }
 
                         val displayName = ImportFileRules.supportedZipAudioName(
                             entryName = entry.name,
@@ -346,14 +373,31 @@ class LibraryStore(private val context: Context) {
                                         output.write(buffer, 0, read)
                                     }
                                 }
-                                importFileInternal(
-                                    sourceFile = temporaryFile,
-                                    displayName = displayName,
-                                    sourceUrl = null,
-                                    companionFiles = emptyList(),
-                                )?.let(imported::add)
+                                runCatching {
+                                    prepareImportedTrack(
+                                        sourceFile = temporaryFile,
+                                        displayName = displayName,
+                                        sourceUrl = sourceUrl,
+                                        companionFiles = emptyList(),
+                                    )
+                                }.getOrNull()?.let(preparedTracks::add)
                             } finally {
                                 temporaryFile.delete()
+                            }
+                        } else if (!entry.isDirectory) {
+                            var entryBytes = 0L
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                val read = zip.read(buffer)
+                                if (read < 0) break
+                                entryBytes += read
+                                totalBytes += read
+                                if (
+                                    entryBytes > ImportFileRules.MAX_ZIP_ENTRY_BYTES ||
+                                    totalBytes > ImportFileRules.MAX_ZIP_TOTAL_BYTES
+                                ) {
+                                    throw IllegalArgumentException("ZIP-архив слишком большой.")
+                                }
                             }
                         }
                         zip.closeEntry()
@@ -365,7 +409,7 @@ class LibraryStore(private val context: Context) {
                 }
             }
         }
-        return imported
+        return persistImportedTracks(preparedTracks)
     }
 
     private suspend fun importFileInternal(
@@ -374,53 +418,80 @@ class LibraryStore(private val context: Context) {
         sourceUrl: String?,
         companionFiles: List<File>,
     ): Track? {
+        val track = prepareImportedTrack(
+            sourceFile = sourceFile,
+            displayName = displayName,
+            sourceUrl = sourceUrl,
+            companionFiles = companionFiles,
+        )
+        return persistImportedTracks(listOf(track)).firstOrNull()
+    }
+
+    private fun prepareImportedTrack(
+        sourceFile: File,
+        displayName: String,
+        sourceUrl: String?,
+        companionFiles: List<File>,
+    ): Track {
         val id = UUID.randomUUID().toString()
         val fallbackExtension = sourceFile.extension.ifBlank { "mp3" }
         val extension = displayName.substringAfterLast('.', fallbackExtension).lowercase()
         val targetAudio = File(tracksDir, "$id.$extension")
-        sourceFile.copyTo(targetAudio, overwrite = true)
+        var artworkPath: String? = null
+        return try {
+            sourceFile.copyTo(targetAudio, overwrite = true)
+            val metadata = metadataExtractor.fromFile(sourceFile, companionFiles)
+            artworkPath = metadata.artworkBytes?.let { bytes ->
+                File(artworksDir, "$id.jpg").also { artworkFile ->
+                    artworkFile.writeBytes(bytes)
+                }.absolutePath
+            }
 
-        val metadata = metadataExtractor.fromFile(sourceFile, companionFiles)
-        val artworkPath = metadata.artworkBytes?.let { bytes ->
-            File(artworksDir, "$id.jpg").also { artworkFile ->
-                artworkFile.writeBytes(bytes)
-            }.absolutePath
+            Track(
+                id = id,
+                title = metadata.title?.takeIf { it.isNotBlank() } ?: displayName.substringBeforeLast('.'),
+                artist = metadata.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist",
+                album = metadata.album?.takeIf { it.isNotBlank() } ?: "Singles",
+                durationMs = metadata.durationMs,
+                localPath = targetAudio.absolutePath,
+                artworkPath = artworkPath,
+                lyrics = metadata.lyrics?.takeIf { it.isNotBlank() },
+                sourceUrl = sourceUrl,
+                importedAt = System.currentTimeMillis(),
+            )
+        } catch (error: Throwable) {
+            targetAudio.delete()
+            artworkPath?.let(::File)?.delete()
+            throw error
         }
+    }
 
-        val track = Track(
-            id = id,
-            title = metadata.title?.takeIf { it.isNotBlank() } ?: displayName.substringBeforeLast('.'),
-            artist = metadata.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist",
-            album = metadata.album?.takeIf { it.isNotBlank() } ?: "Singles",
-            durationMs = metadata.durationMs,
-            localPath = targetAudio.absolutePath,
-            artworkPath = artworkPath,
-            lyrics = metadata.lyrics?.takeIf { it.isNotBlank() },
-            sourceUrl = sourceUrl,
-            importedAt = System.currentTimeMillis(),
-        )
+    private suspend fun persistImportedTracks(tracks: List<Track>): List<Track> {
+        if (tracks.isEmpty()) return emptyList()
 
-        runCatching {
+        try {
             writeMutex.withLock {
                 val updated = mutableSnapshot.value.copy(
-                    tracks = (mutableSnapshot.value.tracks + track).sortedByDescending { it.importedAt },
+                    tracks = (mutableSnapshot.value.tracks + tracks).sortedByDescending { it.importedAt },
                 )
                 persist(updated)
             }
-        }.onFailure {
-            targetAudio.delete()
-            artworkPath?.let(::File)?.delete()
-            return null
+        } catch (error: Throwable) {
+            tracks.forEach { track ->
+                File(track.localPath).delete()
+                track.artworkPath?.let(::File)?.delete()
+            }
+            throw error
         }
-
-        return track
+        return tracks
     }
 
     private fun loadSnapshot(): LibrarySnapshot {
-        if (!manifestFile.exists()) return LibrarySnapshot()
+        if (!manifestAtomicFile.baseFile.exists()) return LibrarySnapshot()
 
         return runCatching {
-            val root = JSONObject(manifestFile.readText())
+            val json = manifestAtomicFile.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val root = JSONObject(json)
             LibrarySnapshot(
                 tracks = root.optJSONArray("tracks").toTracks(),
                 playlists = root.optJSONArray("playlists").toPlaylists(),
@@ -435,7 +506,16 @@ class LibraryStore(private val context: Context) {
             .put("playlists", JSONArray().apply { snapshot.playlists.forEach { put(it.toJson()) } })
             .put("artistArtworks", JSONObject(snapshot.artistArtworkPaths))
 
-        manifestFile.writeText(root.toString(2))
+        val bytes = root.toString(2).toByteArray(Charsets.UTF_8)
+        var output: FileOutputStream? = null
+        try {
+            output = manifestAtomicFile.startWrite()
+            output.write(bytes)
+            manifestAtomicFile.finishWrite(output)
+        } catch (error: Throwable) {
+            output?.let(manifestAtomicFile::failWrite)
+            throw error
+        }
         mutableSnapshot.value = snapshot
     }
 

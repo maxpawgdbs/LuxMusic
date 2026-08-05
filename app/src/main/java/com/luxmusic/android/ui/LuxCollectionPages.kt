@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -943,6 +944,7 @@ internal fun LuxDownloadPage(
     onTitleChange: (String) -> Unit,
     onImportClick: () -> Unit,
     onDownload: (String?) -> Unit,
+    onDownloadArchive: (String?) -> Unit,
     uiState: LuxMusicUiState,
 ) {
     var createPlaylist by rememberSaveable { mutableStateOf(false) }
@@ -1037,6 +1039,20 @@ internal fun LuxDownloadPage(
                         Icon(Icons.Rounded.DownloadForOffline, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(if (uiState.download.isRunning) "Загрузка..." else "Скачать")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            onDownloadArchive(playlistName.trim().takeIf { createPlaylist })
+                        },
+                        enabled = !uiState.download.isRunning &&
+                            url.isNotBlank() &&
+                            (!createPlaylist || playlistName.isNotBlank()),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                    ) {
+                        Icon(Icons.Rounded.DownloadForOffline, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Скачать ZIP по прямой ссылке")
                     }
                     if (uiState.download.isRunning) {
                         LinearProgressIndicator(

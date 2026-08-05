@@ -6,8 +6,8 @@ plugins {
 val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
 val bundledSigningStorePassword = "luxmusic"
 val bundledSigningKeyAlias = "luxmusic-dev"
-val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.5.3"
-val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 500300
+val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.5.4"
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 500400
 val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: baseVersionName
 
 android {

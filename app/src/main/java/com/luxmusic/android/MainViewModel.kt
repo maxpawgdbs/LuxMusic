@@ -136,15 +136,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uris.isEmpty()) return
 
         viewModelScope.launch {
-            val imported = libraryStore.importUris(uris)
+            val imported = runCatching { libraryStore.importUris(uris) }.getOrElse { error ->
+                messagesFlow.emit(error.message ?: "Не удалось импортировать выбранные файлы.")
+                return@launch
+            }
             val normalizedPlaylistName = playlistName?.trim().orEmpty()
+            var playlistCreated = false
             if (imported.isNotEmpty()) {
                 if (normalizedPlaylistName.isNotEmpty()) {
-                    libraryStore.createPlaylist(
-                        name = normalizedPlaylistName,
-                        trackIds = imported.map(Track::id),
+                    playlistCreated = createPlaylistForImportedTracks(
+                        playlistName = normalizedPlaylistName,
+                        tracks = imported,
                     )
-                    selectedTab.value = LuxTab.PLAYLISTS
+                    selectedTab.value = if (playlistCreated) LuxTab.PLAYLISTS else LuxTab.LIBRARY
                 } else {
                     selectedTab.value = LuxTab.LIBRARY
                 }
@@ -152,6 +156,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             messagesFlow.emit(
                 if (imported.isEmpty()) {
                     "Не удалось импортировать выбранные файлы."
+                } else if (normalizedPlaylistName.isNotEmpty() && !playlistCreated) {
+                    "Треки добавлены в библиотеку, но плейлист создать не удалось. Данные музыки сохранены."
                 } else if (normalizedPlaylistName.isNotEmpty()) {
                     "Добавлено ${imported.size} трек(ов) и создан плейлист «$normalizedPlaylistName»."
                 } else {
@@ -341,37 +347,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (normalized.isBlank()) return
 
         viewModelScope.launch {
-            val result = linkDownloader.download(normalized)
-            result.onSuccess { imported ->
-                if (customTitle.isNotBlank()) {
-                    imported.forEach { track ->
+            val imported = linkDownloader.download(normalized).getOrElse { error ->
+                messagesFlow.emit(error.message ?: "Не удалось скачать музыку по ссылке.")
+                return@launch
+            }
+            if (customTitle.isNotBlank()) {
+                imported.forEach { track ->
+                    runCatching {
                         libraryStore.updateTrackDetails(track.id, customTitle, track.artist)
                     }
                 }
-                if (normalizedPlaylistName.isNotEmpty()) {
-                    libraryStore.createPlaylist(
-                        name = normalizedPlaylistName,
-                        trackIds = imported.map(Track::id),
-                    )
-                }
-                downloadUrl.value = ""
-                downloadTitle.value = ""
-                selectedTab.value = if (normalizedPlaylistName.isNotEmpty()) {
-                    LuxTab.PLAYLISTS
-                } else {
-                    LuxTab.LIBRARY
-                }
-                messagesFlow.emit(
-                    if (normalizedPlaylistName.isNotEmpty()) {
-                        "Скачано ${imported.size} трек(ов) и создан плейлист «$normalizedPlaylistName»."
-                    } else {
-                        "Скачано и сохранено ${imported.size} трек(ов)."
-                    },
-                )
-            }.onFailure { error ->
-                messagesFlow.emit(error.message ?: "Не удалось скачать музыку по ссылке.")
             }
+            val playlistCreated = normalizedPlaylistName.isNotEmpty() &&
+                createPlaylistForImportedTracks(normalizedPlaylistName, imported)
+
+            downloadUrl.value = ""
+            downloadTitle.value = ""
+            selectedTab.value = if (playlistCreated) LuxTab.PLAYLISTS else LuxTab.LIBRARY
+            messagesFlow.emit(
+                when {
+                    playlistCreated ->
+                        "Скачано ${imported.size} трек(ов) и создан плейлист «$normalizedPlaylistName»."
+                    normalizedPlaylistName.isNotEmpty() ->
+                        "Музыка скачана, но плейлист создать не удалось. Треки сохранены в библиотеке."
+                    else -> "Скачано и сохранено ${imported.size} трек(ов)."
+                },
+            )
         }
+    }
+
+    fun downloadArchiveFromLink(url: String, playlistName: String? = null) {
+        val normalized = url.trim()
+        val normalizedPlaylistName = playlistName?.trim().orEmpty()
+        if (normalized.isBlank()) return
+
+        viewModelScope.launch {
+            val imported = linkDownloader.downloadArchive(normalized).getOrElse { error ->
+                messagesFlow.emit(error.message ?: "Не удалось скачать ZIP-архив.")
+                return@launch
+            }
+            val playlistCreated = normalizedPlaylistName.isNotEmpty() &&
+                createPlaylistForImportedTracks(normalizedPlaylistName, imported)
+
+            downloadUrl.value = ""
+            downloadTitle.value = ""
+            selectedTab.value = if (playlistCreated) LuxTab.PLAYLISTS else LuxTab.LIBRARY
+            messagesFlow.emit(
+                when {
+                    playlistCreated ->
+                        "Из архива добавлено ${imported.size} трек(ов) и создан плейлист «$normalizedPlaylistName»."
+                    normalizedPlaylistName.isNotEmpty() ->
+                        "Архив импортирован, но плейлист создать не удалось. Треки сохранены в библиотеке."
+                    else -> "Из ZIP-архива добавлено ${imported.size} трек(ов)."
+                },
+            )
+        }
+    }
+
+    private suspend fun createPlaylistForImportedTracks(
+        playlistName: String,
+        tracks: List<Track>,
+    ): Boolean {
+        return runCatching {
+            libraryStore.createPlaylist(
+                name = playlistName,
+                trackIds = tracks.map(Track::id),
+            )
+        }.isSuccess
     }
 
     fun importDownloadAccountCookies(service: DownloadService, uri: Uri?) {

@@ -36,6 +36,7 @@ fun LuxMusicScreen(
     onDownloadUrlChange: (String) -> Unit,
     onDownloadTitleChange: (String) -> Unit,
     onDownloadLink: (String, String, String?) -> Unit,
+    onDownloadArchive: (String, String?) -> Unit,
 ) {
     LuxMusicRoot(
         uiState = uiState,
@@ -67,5 +68,6 @@ fun LuxMusicScreen(
         onDownloadUrlChange = onDownloadUrlChange,
         onDownloadTitleChange = onDownloadTitleChange,
         onDownloadLink = onDownloadLink,
+        onDownloadArchive = onDownloadArchive,
     )
 }

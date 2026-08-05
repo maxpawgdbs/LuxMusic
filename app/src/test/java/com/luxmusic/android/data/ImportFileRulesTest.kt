@@ -1,7 +1,9 @@
 package com.luxmusic.android.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ImportFileRulesTest {
@@ -32,5 +34,18 @@ class ImportFileRulesTest {
                 ImportFileRules.MAX_ZIP_ENTRY_BYTES + 1L,
             ),
         )
+    }
+
+    @Test
+    fun `recognizes standard zip signatures`() {
+        assertTrue(ImportFileRules.hasZipSignature(byteArrayOf(0x50, 0x4B, 0x03, 0x04)))
+        assertTrue(ImportFileRules.hasZipSignature(byteArrayOf(0x50, 0x4B, 0x05, 0x06)))
+        assertTrue(ImportFileRules.hasZipSignature(byteArrayOf(0x50, 0x4B, 0x07, 0x08)))
+    }
+
+    @Test
+    fun `rejects truncated and non zip responses`() {
+        assertFalse(ImportFileRules.hasZipSignature(byteArrayOf(0x50, 0x4B, 0x03)))
+        assertFalse(ImportFileRules.hasZipSignature("<htm".encodeToByteArray()))
     }
 }

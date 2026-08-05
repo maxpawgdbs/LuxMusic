@@ -87,6 +87,7 @@ internal fun LuxMusicRoot(
     onDownloadUrlChange: (String) -> Unit,
     onDownloadTitleChange: (String) -> Unit,
     onDownloadLink: (String, String, String?) -> Unit,
+    onDownloadArchive: (String, String?) -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
@@ -402,6 +403,9 @@ internal fun LuxMusicRoot(
                                 uiState.downloadTitle,
                                 playlistName,
                             )
+                        },
+                        onDownloadArchive = { playlistName ->
+                            onDownloadArchive(uiState.downloadUrl, playlistName)
                         },
                         uiState = uiState,
                     )
