@@ -12,7 +12,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +62,7 @@ internal fun DecorativeBackground() {
 @Composable
 internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
     val bitmap = remember(artworkPath) { artworkPath?.let(::loadBitmapFromPath) }
+    val shape = RoundedCornerShape(20.dp)
 
     if (bitmap != null) {
         Image(
@@ -67,16 +70,19 @@ internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = modifier
-                .clip(RoundedCornerShape(24.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
+                .clip(shape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), shape),
         )
     } else {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(24.dp))
+                .clip(shape)
                 .background(
                     Brush.linearGradient(
-                        listOf(Honey.copy(alpha = 0.75f), Coral.copy(alpha = 0.6f)),
+                        listOf(
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.tertiaryContainer,
+                        ),
                     ),
                 ),
             contentAlignment = Alignment.Center,
@@ -84,12 +90,13 @@ internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
             Icon(
                 imageVector = Icons.Rounded.MusicNote,
                 contentDescription = null,
-                tint = CloudWhite,
-                modifier = Modifier.size(36.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(32.dp),
             )
         }
     }
 }
+
 
 internal fun formatDuration(durationMs: Long): String {
     if (durationMs <= 0L) return "00:00"

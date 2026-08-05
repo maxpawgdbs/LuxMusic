@@ -141,14 +141,14 @@ internal fun LuxTelegramBanner() {
 
 @Composable
 internal fun luxCardColors() = CardDefaults.elevatedCardColors(
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
     contentColor = MaterialTheme.colorScheme.onSurface,
 )
 
 @Composable
 internal fun luxPrimaryButtonColors(): ButtonColors = ButtonDefaults.buttonColors(
     containerColor = MaterialTheme.colorScheme.primary,
-    contentColor = Color.White,
+    contentColor = MaterialTheme.colorScheme.onPrimary,
     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 )
@@ -164,7 +164,7 @@ internal fun luxTonalButtonColors(): ButtonColors = ButtonDefaults.filledTonalBu
 @Composable
 internal fun luxFilledIconButtonColors(): IconButtonColors = IconButtonDefaults.filledIconButtonColors(
     containerColor = MaterialTheme.colorScheme.primary,
-    contentColor = Color.White,
+    contentColor = MaterialTheme.colorScheme.onPrimary,
     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 )
@@ -180,7 +180,7 @@ internal fun luxTonalIconButtonColors(): IconButtonColors = IconButtonDefaults.f
 @Composable
 internal fun luxAssistChipColors() = AssistChipDefaults.assistChipColors(
     containerColor = MaterialTheme.colorScheme.surfaceVariant,
-    labelColor = MaterialTheme.colorScheme.onSurface,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     leadingIconContentColor = MaterialTheme.colorScheme.primary,
 )
 
@@ -194,7 +194,7 @@ internal fun luxSelectedAssistChipColors() = AssistChipDefaults.assistChipColors
 @Composable
 internal fun luxFilterChipColors() = FilterChipDefaults.filterChipColors(
     containerColor = MaterialTheme.colorScheme.surfaceVariant,
-    labelColor = MaterialTheme.colorScheme.onSurface,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     iconColor = MaterialTheme.colorScheme.primary,
     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
     selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -204,7 +204,7 @@ internal fun luxFilterChipColors() = FilterChipDefaults.filterChipColors(
 internal fun pagePadding(contentPadding: PaddingValues): PaddingValues {
     return PaddingValues(
         start = 16.dp,
-        top = contentPadding.calculateTopPadding() + 16.dp,
+        top = contentPadding.calculateTopPadding() + 12.dp,
         end = 16.dp,
         bottom = contentPadding.calculateBottomPadding() + 16.dp,
     )
@@ -226,3 +226,4 @@ internal fun formatCollectionDuration(durationMs: Long): String {
         else -> "$minutes мин"
     }
 }
+

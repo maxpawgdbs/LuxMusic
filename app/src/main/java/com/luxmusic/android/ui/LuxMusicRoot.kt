@@ -146,7 +146,7 @@ internal fun LuxMusicRoot(
                         uiState.selectedTab == LuxTab.HOME -> ""
                         else -> uiState.selectedTab.title()
                     }
-                    if (title.isNotEmpty()) Text(title)
+                    if (title.isNotEmpty()) Text(title, style = MaterialTheme.typography.titleLarge)
                 },
                 navigationIcon = {
                     if (
@@ -193,7 +193,9 @@ internal fun LuxMusicRoot(
         },
         bottomBar = {
             if (!showQueue) {
-                NavigationBar {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
                     LuxTab.entries.forEach { tab ->
                         NavigationBarItem(
                             selected = uiState.selectedTab == tab,
@@ -202,6 +204,7 @@ internal fun LuxMusicRoot(
                                 openedArtistName = null
                                 onSelectTab(tab)
                             },
+                            label = { Text(tab.title(), style = MaterialTheme.typography.labelMedium) },
                             icon = {
                                 Icon(
                                     imageVector = when (tab) {
@@ -220,6 +223,7 @@ internal fun LuxMusicRoot(
             }
         },
     ) { paddingValues ->
+
         if (showQueue) {
             LuxQueuePage(
                 contentPadding = paddingValues,
