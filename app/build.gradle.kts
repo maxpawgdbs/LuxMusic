@@ -6,8 +6,8 @@ plugins {
 val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
 val bundledSigningStorePassword = "luxmusic"
 val bundledSigningKeyAlias = "luxmusic-dev"
-val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.5"
-val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 500000
+val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.5.1"
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 500100
 val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: baseVersionName
 
 android {
@@ -152,6 +152,7 @@ tasks.register<JavaExec>("offlineUnitTest") {
         "com.luxmusic.android.download.LinkDownloadExecutorTest",
         "com.luxmusic.android.download.YtDlpMediaDownloadBackendTest",
         "com.luxmusic.android.data.ImportFileRulesTest",
+        "com.luxmusic.android.playback.PlaybackTaskPolicyTest",
     )
 }
 

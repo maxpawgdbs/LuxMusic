@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
                 var pendingImportPlaylistName by rememberSaveable { mutableStateOf<String?>(null) }
+                var pendingTrackArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
+                var pendingPlaylistArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
+                var pendingArtistArtworkName by rememberSaveable { mutableStateOf<String?>(null) }
                 val importLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments(),
                 ) { uris ->
@@ -45,6 +48,27 @@ class MainActivity : ComponentActivity() {
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission(),
                 ) { }
+                val trackArtworkLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent(),
+                ) { uri ->
+                    val trackId = pendingTrackArtworkId
+                    if (uri != null && trackId != null) viewModel.updateTrackArtwork(trackId, uri)
+                    pendingTrackArtworkId = null
+                }
+                val playlistArtworkLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent(),
+                ) { uri ->
+                    val playlistId = pendingPlaylistArtworkId
+                    if (uri != null && playlistId != null) viewModel.updatePlaylistArtwork(playlistId, uri)
+                    pendingPlaylistArtworkId = null
+                }
+                val artistArtworkLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent(),
+                ) { uri ->
+                    val artist = pendingArtistArtworkName
+                    if (uri != null && artist != null) viewModel.updateArtistArtwork(artist, uri)
+                    pendingArtistArtworkName = null
+                }
 
                 LaunchedEffect(Unit) {
                     if (
@@ -84,6 +108,18 @@ class MainActivity : ComponentActivity() {
                     onRemoveTrackFromPlaylist = viewModel::removeTrackFromPlaylist,
                     onUpdatePlaylistName = viewModel::updatePlaylistName,
                     onUpdateTrackDetails = viewModel::updateTrackDetails,
+                    onPickTrackArtwork = { trackId ->
+                        pendingTrackArtworkId = trackId
+                        trackArtworkLauncher.launch("image/*")
+                    },
+                    onPickPlaylistArtwork = { playlistId ->
+                        pendingPlaylistArtworkId = playlistId
+                        playlistArtworkLauncher.launch("image/*")
+                    },
+                    onPickArtistArtwork = { artist ->
+                        pendingArtistArtworkName = artist
+                        artistArtworkLauncher.launch("image/*")
+                    },
                     onDeleteTrack = viewModel::deleteTrack,
                     onDeletePlaylist = viewModel::deletePlaylist,
                     onPlayTrack = viewModel::playTrack,

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.DownloadForOffline
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
@@ -63,6 +64,9 @@ internal fun LuxMusicRoot(
     onRemoveTrackFromPlaylist: (String, String) -> Unit,
     onUpdatePlaylistName: (String, String) -> Unit,
     onUpdateTrackDetails: (String, String, String) -> Unit,
+    onPickTrackArtwork: (String) -> Unit,
+    onPickPlaylistArtwork: (String) -> Unit,
+    onPickArtistArtwork: (String) -> Unit,
     onDeleteTrack: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
@@ -239,6 +243,15 @@ internal fun LuxMusicRoot(
                         onToggleShuffle = onToggleShuffle,
                         onCycleRepeat = onCycleRepeat,
                         onSeekToFraction = onSeekToFraction,
+                        onShowLyrics = { lyricsTrack = it },
+                        onAddToPlaylist = { playlistTargetTrack = it },
+                        onEdit = { track ->
+                            editTargetTrack = track
+                            editTitle = track.title
+                            editArtist = track.artist
+                        },
+                        onPickArtwork = { track -> onPickTrackArtwork(track.id) },
+                        onDelete = { deleteTargetTrack = it },
                     )
                 }
 
@@ -270,6 +283,7 @@ internal fun LuxMusicRoot(
                         LuxArtistsPage(
                             contentPadding = paddingValues,
                             tracks = uiState.library,
+                            artistArtworkPaths = uiState.artistArtworkPaths,
                             currentArtist = uiState.currentTrack?.artist,
                             onOpenArtist = { openedArtistName = it },
                         )
@@ -277,9 +291,22 @@ internal fun LuxMusicRoot(
                         LuxArtistDetailPage(
                             contentPadding = paddingValues,
                             artist = artist,
+                            artworkPath = uiState.artistArtworkPaths.entries
+                                .firstOrNull { it.key.equals(artist, ignoreCase = true) }
+                                ?.value,
                             tracks = openedArtistTracks,
                             currentTrackId = uiState.currentTrack?.id,
                             onPlayTrack = { trackId -> onPlayArtistTrack(artist, trackId) },
+                            onShowLyrics = { lyricsTrack = it },
+                            onAddToPlaylist = { playlistTargetTrack = it },
+                            onEdit = { track ->
+                                editTargetTrack = track
+                                editTitle = track.title
+                                editArtist = track.artist
+                            },
+                            onPickTrackArtwork = { track -> onPickTrackArtwork(track.id) },
+                            onDeleteTrack = { deleteTargetTrack = it },
+                            onPickArtistArtwork = { onPickArtistArtwork(artist) },
                         )
                     }
                 }
@@ -305,6 +332,7 @@ internal fun LuxMusicRoot(
                             },
                             onDeleteTrack = { deleteTargetTrack = it },
                             onAddTracks = { playlistEditorId = openedPlaylist.id },
+                            onPickArtwork = { onPickPlaylistArtwork(openedPlaylist.id) },
                             onDeletePlaylist = { deleteTargetPlaylist = openedPlaylist },
                         )
                     } else {
@@ -475,6 +503,10 @@ internal fun LuxMusicRoot(
                         label = { Text("Автор") },
                         singleLine = true,
                     )
+                    TextButton(onClick = { onPickTrackArtwork(track.id) }) {
+                        Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null)
+                        Text("Выбрать обложку")
+                    }
                 }
             },
             confirmButton = {

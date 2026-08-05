@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Edit
@@ -267,7 +268,8 @@ internal fun LuxPlaylistsPage(
                 val tracks = remember(playlist.trackIds, tracksById) {
                     playlist.trackIds.mapNotNull(tracksById::get)
                 }
-                val artworkPath = tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath
+                val artworkPath = playlist.artworkPath
+                    ?: tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath
 
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -350,6 +352,7 @@ internal fun LuxPlaylistDetailPage(
     onRemoveTrack: (String) -> Unit,
     onDeleteTrack: (Track) -> Unit,
     onAddTracks: () -> Unit,
+    onPickArtwork: () -> Unit,
     onDeletePlaylist: () -> Unit,
 ) {
     LazyColumn(
@@ -373,7 +376,8 @@ internal fun LuxPlaylistDetailPage(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ArtworkThumb(
-                            tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
+                            playlist.artworkPath
+                                ?: tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
                             modifier = Modifier.size(104.dp),
                         )
                         Column(
@@ -406,6 +410,12 @@ internal fun LuxPlaylistDetailPage(
                             Icon(
                                 Icons.AutoMirrored.Rounded.PlaylistAdd,
                                 contentDescription = "Добавить треки",
+                            )
+                        }
+                        OutlinedIconButton(onClick = onPickArtwork) {
+                            Icon(
+                                Icons.Rounded.AddPhotoAlternate,
+                                contentDescription = "Выбрать обложку плейлиста",
                             )
                         }
                         OutlinedIconButton(onClick = onDeletePlaylist) {
@@ -550,6 +560,7 @@ internal fun LuxPlaylistDetailPage(
 internal fun LuxArtistsPage(
     contentPadding: PaddingValues,
     tracks: List<Track>,
+    artistArtworkPaths: Map<String, String>,
     currentArtist: String?,
     onOpenArtist: (String) -> Unit,
 ) {
@@ -598,7 +609,10 @@ internal fun LuxArtistsPage(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ArtworkThumb(
-                            artistTracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
+                            artistArtworkPaths.entries
+                                .firstOrNull { it.key.equals(artist, ignoreCase = true) }
+                                ?.value
+                                ?: artistTracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
                             modifier = Modifier.size(82.dp),
                         )
                         Column(
@@ -627,9 +641,16 @@ internal fun LuxArtistsPage(
 internal fun LuxArtistDetailPage(
     contentPadding: PaddingValues,
     artist: String,
+    artworkPath: String?,
     tracks: List<Track>,
     currentTrackId: String?,
     onPlayTrack: (String) -> Unit,
+    onShowLyrics: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onEdit: (Track) -> Unit,
+    onPickTrackArtwork: (Track) -> Unit,
+    onDeleteTrack: (Track) -> Unit,
+    onPickArtistArtwork: () -> Unit,
 ) {
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
@@ -648,7 +669,8 @@ internal fun LuxArtistDetailPage(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ArtworkThumb(
-                        tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
+                        artworkPath
+                            ?: tracks.firstOrNull { !it.artworkPath.isNullOrBlank() }?.artworkPath,
                         modifier = Modifier.size(108.dp),
                     )
                     Column(
@@ -664,12 +686,19 @@ internal fun LuxArtistDetailPage(
                             text = "${tracks.size} трек(ов)",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        OutlinedIconButton(onClick = onPickArtistArtwork) {
+                            Icon(
+                                Icons.Rounded.AddPhotoAlternate,
+                                contentDescription = "Выбрать изображение артиста",
+                            )
+                        }
                     }
                 }
             }
         }
         items(tracks, key = Track::id) { track ->
             val isCurrent = track.id == currentTrackId
+            var menuExpanded by remember(track.id) { mutableStateOf(false) }
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.elevatedCardColors(
@@ -704,12 +733,72 @@ internal fun LuxArtistDetailPage(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        Text(
+                            text = formatDuration(track.durationMs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    Text(
-                        text = formatDuration(track.durationMs),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Действия")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Изменить") },
+                                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onEdit(track)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Выбрать обложку") },
+                                leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onPickTrackArtwork(track)
+                                },
+                            )
+                            if (!track.lyrics.isNullOrBlank()) {
+                                DropdownMenuItem(
+                                    text = { Text("Текст песни") },
+                                    leadingIcon = { Icon(Icons.Rounded.Subtitles, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onShowLyrics(track)
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Добавить в плейлист") },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onAddToPlaylist(track)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Удалить с устройства") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.DeleteOutline,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDeleteTrack(track)
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }

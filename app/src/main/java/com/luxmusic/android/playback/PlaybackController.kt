@@ -22,9 +22,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
@@ -33,6 +30,7 @@ import java.io.File
 class PlaybackController(
     context: Context,
     private val libraryStore: LibraryStore,
+    private val stateSink: (PlaybackState) -> Unit,
 ) {
     private val appContext = context.applicationContext
     private val playbackPreferences = appContext.getSharedPreferences(PLAYBACK_PREFERENCES, Context.MODE_PRIVATE)
@@ -50,20 +48,15 @@ class PlaybackController(
             )
             setHandleAudioBecomingNoisy(true)
         }
-    private val mutableState = MutableStateFlow(PlaybackState())
-
     private var currentQueue: List<Track> = emptyList()
     private var currentQueueTitle: String = DEFAULT_QUEUE_TITLE
     private var currentPlaylistId: String? = null
-    private var sessionServiceActive = false
     private var lastPersistedState: PersistedPlaybackState? = null
 
     private val mediaSession = MediaSession.Builder(appContext, player)
         .setId("luxmusic_media_session")
         .setPeriodicPositionUpdateEnabled(true)
         .build()
-
-    val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
 
     init {
         mediaSession.setSessionActivity(contentIntent())
@@ -237,6 +230,8 @@ class PlaybackController(
                     currentItem.mediaMetadata.buildUpon()
                         .setTitle(updatedTrack.title)
                         .setArtist(updatedTrack.artist)
+                        .setAlbumTitle(updatedTrack.album)
+                        .setArtworkUri(updatedTrack.artworkPath?.let(::File)?.toUri())
                         .build(),
                 )
                 .build(),
@@ -267,10 +262,6 @@ class PlaybackController(
         publishState()
     }
 
-    fun onSessionServiceStopped() {
-        sessionServiceActive = false
-    }
-
     fun removeTrack(trackId: String) {
         val index = currentQueue.indexOfFirst { it.id == trackId }
         currentQueue = currentQueue.filterNot { it.id == trackId }
@@ -293,16 +284,20 @@ class PlaybackController(
 
     fun hasMediaItems(): Boolean = player.mediaItemCount > 0
 
+    fun shouldRemainWhenTaskRemoved(): Boolean = PlaybackTaskPolicy.shouldKeepService(
+        hasMediaItems = player.mediaItemCount > 0,
+        playWhenReady = player.playWhenReady,
+        playbackEnded = player.playbackState == Player.STATE_ENDED,
+    )
+
     fun release() {
         scope.cancel()
-        PlaybackSessionService.stop(appContext)
-        sessionServiceActive = false
         mediaSession.release()
         player.release()
     }
 
     private fun publishState() {
-        mutableState.value = PlaybackState(
+        val playbackState = PlaybackState(
             currentTrackId = player.currentMediaItem?.mediaId,
             queueTrackIds = visibleQueueIds(),
             queueTitle = currentQueueTitle,
@@ -317,23 +312,8 @@ class PlaybackController(
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeIf { it > 0L } ?: 0L,
         )
+        stateSink(playbackState)
         persistPlaybackState()
-        syncSessionService()
-    }
-
-    private fun syncSessionService() {
-        if (player.mediaItemCount == 0) {
-            if (sessionServiceActive) {
-                PlaybackSessionService.stop(appContext)
-                sessionServiceActive = false
-            }
-            return
-        }
-
-        if (!sessionServiceActive) {
-            PlaybackSessionService.start(appContext)
-            sessionServiceActive = true
-        }
     }
 
     private fun visibleQueueIds(): List<String> {
@@ -474,5 +454,15 @@ class PlaybackController(
         const val KEY_PLAY_WHEN_READY = "play_when_ready"
         const val KEY_SHUFFLE = "shuffle"
         const val KEY_REPEAT_MODE = "repeat_mode"
+    }
+}
+
+internal object PlaybackTaskPolicy {
+    fun shouldKeepService(
+        hasMediaItems: Boolean,
+        playWhenReady: Boolean,
+        playbackEnded: Boolean,
+    ): Boolean {
+        return hasMediaItems && playWhenReady && !playbackEnded
     }
 }

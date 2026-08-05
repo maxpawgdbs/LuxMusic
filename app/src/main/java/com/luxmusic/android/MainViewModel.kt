@@ -32,6 +32,7 @@ data class LuxMusicUiState(
     val library: List<Track> = emptyList(),
     val visibleTracks: List<Track> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
+    val artistArtworkPaths: Map<String, String> = emptyMap(),
     val downloadAccounts: List<DownloadAccountState> = emptyList(),
     val selectedTab: LuxTab = LuxTab.HOME,
     val searchQuery: String = "",
@@ -45,7 +46,7 @@ data class LuxMusicUiState(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val luxApp = application as LuxMusicApp
     private val libraryStore = luxApp.libraryStore
-    private val playbackController = luxApp.playbackController
+    private val playbackGateway = luxApp.playbackGateway
     private val downloadAccountStore = luxApp.downloadAccountStore
     private val linkDownloader = luxApp.linkDownloader
 
@@ -59,7 +60,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val uiState: StateFlow<LuxMusicUiState> = combine(
         libraryStore.snapshot,
-        playbackController.state,
+        playbackGateway.state,
         downloadAccountStore.accounts,
         linkDownloader.state,
         searchQuery,
@@ -86,6 +87,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             library = inputs.library.tracks,
             visibleTracks = visibleTracks,
             playlists = inputs.library.playlists,
+            artistArtworkPaths = inputs.library.artistArtworkPaths,
             downloadAccounts = inputs.downloadAccounts,
             selectedTab = tab,
             searchQuery = inputs.query,
@@ -199,7 +201,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ?.name
             val updated = libraryStore.updatePlaylistName(playlistId, normalized)
             if (updated != null && previousName != null) {
-                playbackController.updateQueueTitle(previousName, updated.name)
+                playbackGateway.updateQueueTitle(previousName, updated.name)
                 messagesFlow.emit("Название плейлиста обновлено.")
             }
         }
@@ -209,7 +211,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val removed = libraryStore.deletePlaylist(playlistId)
             if (removed != null) {
-                playbackController.clearActivePlaylist(playlistId)
+                playbackGateway.clearActivePlaylist(playlistId)
             }
             messagesFlow.emit(
                 if (removed != null) {
@@ -223,7 +225,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteTrack(trackId: String) {
         viewModelScope.launch {
-            playbackController.removeTrack(trackId)
+            playbackGateway.removeTrack(trackId)
             val removed = libraryStore.deleteTrack(trackId)
             messagesFlow.emit(
                 if (removed != null) {
@@ -242,8 +244,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             libraryStore.updateTrackDetails(trackId, normalizedTitle, normalizedArtist)?.let { updated ->
-                playbackController.updateTrackDetails(updated)
+                playbackGateway.updateTrack(updated.id)
             }
+        }
+    }
+
+    fun updateTrackArtwork(trackId: String, uri: Uri) {
+        viewModelScope.launch {
+            val updated = libraryStore.updateTrackArtwork(trackId, uri)
+            if (updated != null) {
+                playbackGateway.updateTrack(updated.id)
+                messagesFlow.emit("Обложка трека обновлена.")
+            } else {
+                messagesFlow.emit("Не удалось загрузить изображение.")
+            }
+        }
+    }
+
+    fun updatePlaylistArtwork(playlistId: String, uri: Uri) {
+        viewModelScope.launch {
+            val updated = libraryStore.updatePlaylistArtwork(playlistId, uri)
+            messagesFlow.emit(
+                if (updated != null) "Обложка плейлиста обновлена."
+                else "Не удалось загрузить изображение.",
+            )
+        }
+    }
+
+    fun updateArtistArtwork(artist: String, uri: Uri) {
+        viewModelScope.launch {
+            val updated = libraryStore.updateArtistArtwork(artist, uri)
+            messagesFlow.emit(
+                if (updated != null) "Изображение артиста обновлено."
+                else "Не удалось загрузить изображение.",
+            )
         }
     }
 
@@ -251,7 +285,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val queue = uiState.value.visibleTracks.ifEmpty { uiState.value.library }
         val index = queue.indexOfFirst { it.id == trackId }
         if (index >= 0) {
-            playbackController.playOrToggleCollection(queue, index, "Библиотека")
+            playbackGateway.playCollection(queue, index, "Библиотека")
         }
     }
 
@@ -262,7 +296,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val tracksById = uiState.value.library.associateBy { it.id }
         val queue = playlist.trackIds.mapNotNull(tracksById::get)
         if (queue.isNotEmpty()) {
-            playbackController.playOrToggleCollection(queue, 0, playlist.name, playlist.id)
+            playbackGateway.playCollection(queue, 0, playlist.name, playlist.id)
         }
     }
 
@@ -272,7 +306,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val queue = playlist.trackIds.mapNotNull(tracksById::get)
         val startIndex = queue.indexOfFirst { it.id == trackId }
         if (startIndex >= 0) {
-            playbackController.playOrToggleCollection(queue, startIndex, playlist.name, playlist.id)
+            playbackGateway.playCollection(queue, startIndex, playlist.name, playlist.id)
         }
     }
 
@@ -280,23 +314,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val queue = uiState.value.library.filter { it.artist.equals(artist, ignoreCase = true) }
         val startIndex = queue.indexOfFirst { it.id == trackId }
         if (startIndex >= 0) {
-            playbackController.playOrToggleCollection(queue, startIndex, "Артист • $artist")
+            playbackGateway.playCollection(queue, startIndex, "Артист • $artist")
         }
     }
 
-    fun togglePlayback() = playbackController.togglePlayback()
+    fun togglePlayback() = playbackGateway.togglePlayback()
 
-    fun skipNext() = playbackController.skipNext()
+    fun skipNext() = playbackGateway.skipNext()
 
-    fun skipPrevious() = playbackController.skipPrevious()
+    fun skipPrevious() = playbackGateway.skipPrevious()
 
-    fun toggleShuffle() = playbackController.toggleShuffle()
+    fun toggleShuffle() = playbackGateway.toggleShuffle()
 
-    fun cycleRepeat() = playbackController.cycleRepeatMode()
+    fun cycleRepeat() = playbackGateway.cycleRepeatMode()
 
-    fun seekToFraction(fraction: Float) = playbackController.seekToFraction(fraction)
+    fun seekToFraction(fraction: Float) = playbackGateway.seekToFraction(fraction)
 
-    fun selectQueueTrack(trackId: String) = playbackController.selectQueueTrack(trackId)
+    fun selectQueueTrack(trackId: String) = playbackGateway.selectQueueTrack(trackId)
 
     fun downloadFromLink(url: String, title: String, playlistName: String? = null) {
         val normalized = url.trim()

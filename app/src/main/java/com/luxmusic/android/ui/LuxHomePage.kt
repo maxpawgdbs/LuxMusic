@@ -1,6 +1,7 @@
 package com.luxmusic.android.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -18,15 +24,20 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +57,11 @@ internal fun LuxHomePage(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
+    onShowLyrics: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onEdit: (Track) -> Unit,
+    onPickArtwork: (Track) -> Unit,
+    onDelete: (Track) -> Unit,
 ) {
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
@@ -60,6 +76,11 @@ internal fun LuxHomePage(
                 onToggleShuffle = onToggleShuffle,
                 onCycleRepeat = onCycleRepeat,
                 onSeekToFraction = onSeekToFraction,
+                onShowLyrics = onShowLyrics,
+                onAddToPlaylist = onAddToPlaylist,
+                onEdit = onEdit,
+                onPickArtwork = onPickArtwork,
+                onDelete = onDelete,
             )
         }
         item { LuxTelegramBanner() }
@@ -75,8 +96,14 @@ private fun LuxPlayerCard(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
+    onShowLyrics: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onEdit: (Track) -> Unit,
+    onPickArtwork: (Track) -> Unit,
+    onDelete: (Track) -> Unit,
 ) {
     val currentTrack = uiState.currentTrack
+    var menuExpanded by remember(currentTrack?.id) { mutableStateOf(false) }
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -91,6 +118,71 @@ private fun LuxPlayerCard(
             if (currentTrack == null) {
                 Text("Выберите трек в библиотеке", style = MaterialTheme.typography.headlineSmall)
             } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Действия с треком")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Изменить") },
+                                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onEdit(currentTrack)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Выбрать обложку") },
+                                leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onPickArtwork(currentTrack)
+                                },
+                            )
+                            if (!currentTrack.lyrics.isNullOrBlank()) {
+                                DropdownMenuItem(
+                                    text = { Text("Текст песни") },
+                                    leadingIcon = { Icon(Icons.Rounded.Subtitles, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onShowLyrics(currentTrack)
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Добавить в плейлист") },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onAddToPlaylist(currentTrack)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Удалить с устройства") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.DeleteOutline,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDelete(currentTrack)
+                                },
+                            )
+                        }
+                    }
+                }
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {

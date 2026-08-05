@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">LuxMusic</string>
+    <string name="playback_notification_channel">Воспроизведение</string>
 </resources>

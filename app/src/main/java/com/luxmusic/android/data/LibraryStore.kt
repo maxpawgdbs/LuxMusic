@@ -1,7 +1,11 @@
 package com.luxmusic.android.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -135,16 +139,99 @@ class LibraryStore(private val context: Context) {
                 val updatedTracks = current.tracks.map { track ->
                     if (track.id == trackId) updatedTrack else track
                 }
-                persist(current.copy(tracks = updatedTracks))
+                val updatedArtistArtworks = current.artistArtworkPaths.toMutableMap()
+                if (
+                    !target.artist.equals(updatedTrack.artist, ignoreCase = true) &&
+                    updatedTracks.none { it.artist.equals(target.artist, ignoreCase = true) }
+                ) {
+                    val previousArtwork = updatedArtistArtworks.remove(target.artist)
+                    if (previousArtwork != null && updatedArtistArtworks[updatedTrack.artist] == null) {
+                        updatedArtistArtworks[updatedTrack.artist] = previousArtwork
+                    }
+                }
+                persist(
+                    current.copy(
+                        tracks = updatedTracks,
+                        artistArtworkPaths = updatedArtistArtworks,
+                    ),
+                )
                 updatedTrack
             }
         }
+
+    suspend fun updateTrackArtwork(trackId: String, uri: Uri): Track? = withContext(Dispatchers.IO) {
+        val artworkPath = storeArtwork(uri, "track-$trackId") ?: return@withContext null
+        writeMutex.withLock {
+            val current = mutableSnapshot.value
+            val target = current.tracks.firstOrNull { it.id == trackId }
+            if (target == null) {
+                File(artworkPath).delete()
+                return@withLock null
+            }
+            val updatedTrack = target.copy(artworkPath = artworkPath)
+            persist(
+                current.copy(
+                    tracks = current.tracks.map { track ->
+                        if (track.id == trackId) updatedTrack else track
+                    },
+                ),
+            )
+            deleteReplacedArtwork(target.artworkPath, artworkPath)
+            updatedTrack
+        }
+    }
+
+    suspend fun updatePlaylistArtwork(playlistId: String, uri: Uri): Playlist? = withContext(Dispatchers.IO) {
+        val artworkPath = storeArtwork(uri, "playlist-$playlistId") ?: return@withContext null
+        writeMutex.withLock {
+            val current = mutableSnapshot.value
+            val target = current.playlists.firstOrNull { it.id == playlistId }
+            if (target == null) {
+                File(artworkPath).delete()
+                return@withLock null
+            }
+            val updatedPlaylist = target.copy(artworkPath = artworkPath)
+            persist(
+                current.copy(
+                    playlists = current.playlists.map { playlist ->
+                        if (playlist.id == playlistId) updatedPlaylist else playlist
+                    },
+                ),
+            )
+            deleteReplacedArtwork(target.artworkPath, artworkPath)
+            updatedPlaylist
+        }
+    }
+
+    suspend fun updateArtistArtwork(artist: String, uri: Uri): String? = withContext(Dispatchers.IO) {
+        val normalizedArtist = artist.trim()
+        if (normalizedArtist.isBlank()) return@withContext null
+        val artworkPath = storeArtwork(uri, "artist") ?: return@withContext null
+        writeMutex.withLock {
+            val current = mutableSnapshot.value
+            if (current.tracks.none { it.artist.equals(normalizedArtist, ignoreCase = true) }) {
+                File(artworkPath).delete()
+                return@withLock null
+            }
+            val existingKey = current.artistArtworkPaths.keys
+                .firstOrNull { it.equals(normalizedArtist, ignoreCase = true) }
+            val previousArtwork = existingKey?.let(current.artistArtworkPaths::get)
+            val updatedArtworks = current.artistArtworkPaths.toMutableMap().apply {
+                if (existingKey != null) remove(existingKey)
+                put(normalizedArtist, artworkPath)
+            }
+            persist(current.copy(artistArtworkPaths = updatedArtworks))
+            deleteReplacedArtwork(previousArtwork, artworkPath)
+            artworkPath
+        }
+    }
 
     suspend fun deletePlaylist(playlistId: String): Playlist? = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val current = mutableSnapshot.value
             val removed = current.playlists.firstOrNull { it.id == playlistId } ?: return@withLock null
             persist(current.copy(playlists = current.playlists.filterNot { it.id == playlistId }))
+            removed.artworkPath?.let { path -> runCatching { File(path).delete() } }
             removed
         }
     }
@@ -154,10 +241,25 @@ class LibraryStore(private val context: Context) {
             val current = mutableSnapshot.value
             val target = current.tracks.firstOrNull { it.id == trackId } ?: return@withLock null
 
+            val remainingTracks = current.tracks.filterNot { it.id == trackId }
+            val artistArtworkKey = if (
+                remainingTracks.none { it.artist.equals(target.artist, ignoreCase = true) }
+            ) {
+                current.artistArtworkPaths.keys
+                    .firstOrNull { it.equals(target.artist, ignoreCase = true) }
+            } else {
+                null
+            }
+            val artistArtworkPath = artistArtworkKey?.let(current.artistArtworkPaths::get)
             val updated = current.copy(
-                tracks = current.tracks.filterNot { it.id == trackId },
+                tracks = remainingTracks,
                 playlists = current.playlists.map { playlist ->
                     playlist.copy(trackIds = playlist.trackIds.filterNot { it == trackId })
+                },
+                artistArtworkPaths = if (artistArtworkKey != null) {
+                    current.artistArtworkPaths - artistArtworkKey
+                } else {
+                    current.artistArtworkPaths
                 },
             )
 
@@ -165,6 +267,7 @@ class LibraryStore(private val context: Context) {
 
             runCatching { File(target.localPath).delete() }
             target.artworkPath?.let { path -> runCatching { File(path).delete() } }
+            artistArtworkPath?.let { path -> runCatching { File(path).delete() } }
 
             target
         }
@@ -321,6 +424,7 @@ class LibraryStore(private val context: Context) {
             LibrarySnapshot(
                 tracks = root.optJSONArray("tracks").toTracks(),
                 playlists = root.optJSONArray("playlists").toPlaylists(),
+                artistArtworkPaths = root.optJSONObject("artistArtworks").toStringMap(),
             )
         }.getOrDefault(LibrarySnapshot())
     }
@@ -329,6 +433,7 @@ class LibraryStore(private val context: Context) {
         val root = JSONObject()
             .put("tracks", JSONArray().apply { snapshot.tracks.forEach { put(it.toJson()) } })
             .put("playlists", JSONArray().apply { snapshot.playlists.forEach { put(it.toJson()) } })
+            .put("artistArtworks", JSONObject(snapshot.artistArtworkPaths))
 
         manifestFile.writeText(root.toString(2))
         mutableSnapshot.value = snapshot
@@ -390,6 +495,7 @@ class LibraryStore(private val context: Context) {
             List(array.length()) { index -> array.getString(index) }
         }.orEmpty(),
         createdAt = getLong("createdAt"),
+        artworkPath = optStringOrNull("artworkPath"),
     )
 
     private fun Track.toJson(): JSONObject = JSONObject()
@@ -409,9 +515,111 @@ class LibraryStore(private val context: Context) {
         .put("name", name)
         .put("trackIds", JSONArray().apply { trackIds.forEach(::put) })
         .put("createdAt", createdAt)
+        .putOpt("artworkPath", artworkPath)
+
+    private fun JSONObject?.toStringMap(): Map<String, String> {
+        if (this == null) return emptyMap()
+        return keys().asSequence().associateWith { key -> getString(key) }
+    }
+
+    private fun storeArtwork(uri: Uri, prefix: String): String? {
+        val temporaryFile = File(artworksDir, "incoming-${UUID.randomUUID()}")
+        return try {
+            val copied = context.contentResolver.openInputStream(uri)?.use { input ->
+                temporaryFile.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var totalBytes = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        totalBytes += read
+                        if (totalBytes > MAX_ARTWORK_SOURCE_BYTES) return@use false
+                        output.write(buffer, 0, read)
+                    }
+                    totalBytes > 0L
+                }
+            } ?: false
+            if (!copied) return null
+
+            val bitmap = decodeArtworkBitmap(temporaryFile) ?: return null
+            val scale = minOf(
+                1f,
+                MAX_ARTWORK_DIMENSION.toFloat() / maxOf(bitmap.width, bitmap.height).toFloat(),
+            )
+            val outputBitmap = if (scale < 1f) {
+                Bitmap.createScaledBitmap(
+                    bitmap,
+                    (bitmap.width * scale).toInt().coerceAtLeast(1),
+                    (bitmap.height * scale).toInt().coerceAtLeast(1),
+                    true,
+                )
+            } else {
+                bitmap
+            }
+            val destination = File(artworksDir, "$prefix-${UUID.randomUUID()}.jpg")
+            val compressed = destination.outputStream().use { output ->
+                outputBitmap.compress(Bitmap.CompressFormat.JPEG, ARTWORK_JPEG_QUALITY, output)
+            }
+            if (outputBitmap !== bitmap) outputBitmap.recycle()
+            bitmap.recycle()
+            if (compressed) destination.absolutePath else {
+                destination.delete()
+                null
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            temporaryFile.delete()
+        }
+    }
+
+    private fun decodeArtworkBitmap(file: File): Bitmap? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val width = info.size.width
+                val height = info.size.height
+                val longestSide = maxOf(width, height)
+                if (longestSide > MAX_ARTWORK_DIMENSION) {
+                    val scale = MAX_ARTWORK_DIMENSION.toFloat() / longestSide.toFloat()
+                    decoder.setTargetSize(
+                        (width * scale).toInt().coerceAtLeast(1),
+                        (height * scale).toInt().coerceAtLeast(1),
+                    )
+                }
+            }
+        }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        while (
+            bounds.outWidth / sampleSize > MAX_ARTWORK_DIMENSION * 2 ||
+            bounds.outHeight / sampleSize > MAX_ARTWORK_DIMENSION * 2
+        ) {
+            sampleSize *= 2
+        }
+        return BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize },
+        )
+    }
+
+    private fun deleteReplacedArtwork(previousPath: String?, newPath: String) {
+        if (!previousPath.isNullOrBlank() && previousPath != newPath) {
+            runCatching { File(previousPath).delete() }
+        }
+    }
 
     private fun JSONObject.optStringOrNull(name: String): String? {
         return if (has(name) && !isNull(name)) getString(name) else null
+    }
+
+    private companion object {
+        const val MAX_ARTWORK_SOURCE_BYTES = 25L * 1024L * 1024L
+        const val MAX_ARTWORK_DIMENSION = 1_600
+        const val ARTWORK_JPEG_QUALITY = 90
     }
 
 }

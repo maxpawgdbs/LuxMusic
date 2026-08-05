@@ -18,11 +18,13 @@ data class Playlist(
     val name: String,
     val trackIds: List<String>,
     val createdAt: Long,
+    val artworkPath: String? = null,
 )
 
 data class LibrarySnapshot(
     val tracks: List<Track> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
+    val artistArtworkPaths: Map<String, String> = emptyMap(),
 )
 
 enum class RepeatMode {
