@@ -130,6 +130,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectedTab.value = LuxTab.DOWNLOAD
     }
 
+    fun restorePlayback() = playbackGateway.restorePlayback()
+
     fun importAudio(uris: List<Uri>, playlistName: String? = null) {
         if (uris.isEmpty()) return
 

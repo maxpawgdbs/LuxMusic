@@ -3,12 +3,17 @@ package com.luxmusic.android.playback
 import android.content.Intent
 import android.util.Log
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.luxmusic.android.LuxMusicApp
-import com.luxmusic.android.R
 import com.luxmusic.android.data.Track
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * The sole owner of LuxMusic's Player and MediaSession. Media3 publishes the foreground
@@ -16,6 +21,7 @@ import com.luxmusic.android.data.Track
  */
 @UnstableApi
 class PlaybackSessionService : MediaSessionService() {
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var playbackController: PlaybackController
 
     private val luxApp: LuxMusicApp
@@ -24,20 +30,22 @@ class PlaybackSessionService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "PlaybackSessionService created")
-        val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
-            .setChannelId(NOTIFICATION_CHANNEL_ID)
-            .setChannelName(R.string.playback_notification_channel)
-            .build()
-            .apply { setSmallIcon(R.drawable.ic_notification) }
-        setMediaNotificationProvider(notificationProvider)
-        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_ALWAYS)
-
         playbackController = PlaybackController(
             service = this,
             libraryStore = luxApp.libraryStore,
             stateSink = luxApp.playbackGateway::publish,
         )
+        setMediaNotificationProvider(
+            LuxMediaNotificationProvider(this, playbackController::notificationQueueTitle),
+        )
+        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_ALWAYS)
         addSession(playbackController.mediaSession())
+        serviceScope.launch {
+            while (isActive) {
+                delay(NOTIFICATION_REFRESH_MS)
+                if (playbackController.isPlaying()) triggerNotificationUpdate()
+            }
+        }
         Log.i(TAG, "MediaSession registered in the foreground playback service")
     }
 
@@ -62,14 +70,15 @@ class PlaybackSessionService : MediaSessionService() {
             return
         }
 
-        Log.i(TAG, "Task removed while idle; stopping service and removing notification")
-        playbackController.stopPlayback()
+        Log.i(TAG, "Task removed while idle; persisting playback and removing notification")
+        playbackController.pauseAndPersistForTaskRemoval()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
         Log.i(TAG, "PlaybackSessionService destroyed")
+        serviceScope.cancel()
         if (::playbackController.isInitialized) {
             removeSession(playbackController.mediaSession())
             playbackController.release()
@@ -79,6 +88,7 @@ class PlaybackSessionService : MediaSessionService() {
 
     private fun handleCommand(intent: Intent?) {
         when (intent?.action) {
+            ACTION_RESTORE -> Unit
             ACTION_PLAY_COLLECTION -> playCollection(intent)
             ACTION_TOGGLE -> playbackController.togglePlayback()
             ACTION_NEXT -> playbackController.skipNext()
@@ -131,6 +141,7 @@ class PlaybackSessionService : MediaSessionService() {
     }
 
     companion object {
+        internal const val ACTION_RESTORE = "com.luxmusic.android.action.RESTORE"
         internal const val ACTION_PLAY_COLLECTION = "com.luxmusic.android.action.PLAY_COLLECTION"
         internal const val ACTION_TOGGLE = "com.luxmusic.android.action.TOGGLE"
         internal const val ACTION_NEXT = "com.luxmusic.android.action.NEXT"
@@ -152,7 +163,7 @@ class PlaybackSessionService : MediaSessionService() {
         internal const val EXTRA_PLAYLIST_ID = "playlist_id"
         internal const val EXTRA_SEEK_FRACTION = "seek_fraction"
 
-        private const val NOTIFICATION_CHANNEL_ID = "luxmusic_playback"
+        private const val NOTIFICATION_REFRESH_MS = 5_000L
         private const val TAG = "LuxPlayback"
     }
 }

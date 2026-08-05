@@ -19,6 +19,15 @@ class PlaybackGateway(context: Context) {
 
     val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
 
+    fun restorePlayback() {
+        if (!PlaybackController.hasPersistedQueue(appContext)) return
+
+        send(
+            action = PlaybackSessionService.ACTION_RESTORE,
+            foreground = true,
+        )
+    }
+
     fun playCollection(
         tracks: List<Track>,
         startIndex: Int,

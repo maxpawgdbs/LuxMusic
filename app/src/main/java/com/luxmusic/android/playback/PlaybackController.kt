@@ -182,23 +182,21 @@ internal class PlaybackController(
     }
 
     fun toggleShuffle() {
-        player.shuffleModeEnabled = !player.shuffleModeEnabled
-        if (player.shuffleModeEnabled) {
-            player.repeatMode = Player.REPEAT_MODE_ALL
+        val shuffleEnabled = !player.shuffleModeEnabled
+        if (shuffleEnabled) {
+            player.repeatMode = PlaybackModePolicy
+                .repeatAfterShuffleEnabled(player.repeatMode.toRepeatMode())
+                .toPlayerRepeatMode()
         }
+        player.shuffleModeEnabled = shuffleEnabled
         publishState()
     }
 
     fun cycleRepeatMode() {
-        player.repeatMode = if (player.shuffleModeEnabled) {
-            Player.REPEAT_MODE_ALL
-        } else {
-            when (player.repeatMode) {
-                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                else -> Player.REPEAT_MODE_OFF
-            }
-        }
+        player.repeatMode = PlaybackModePolicy.nextRepeat(
+            current = player.repeatMode.toRepeatMode(),
+            shuffleEnabled = player.shuffleModeEnabled,
+        ).toPlayerRepeatMode()
         publishState()
     }
 
@@ -264,6 +262,19 @@ internal class PlaybackController(
         publishState()
     }
 
+    /**
+     * A paused player may be torn down with its task, but its queue must remain resumable on the
+     * next app launch. Commit synchronously because Android can destroy the service immediately
+     * after [PlaybackSessionService.onTaskRemoved] returns.
+     */
+    fun pauseAndPersistForTaskRemoval() {
+        if (player.mediaItemCount == 0) return
+
+        player.pause()
+        publishState()
+        persistPlaybackState(force = true, synchronous = true)
+    }
+
     fun removeTrack(trackId: String) {
         val index = currentQueue.indexOfFirst { it.id == trackId }
         currentQueue = currentQueue.filterNot { it.id == trackId }
@@ -286,6 +297,10 @@ internal class PlaybackController(
 
     fun hasMediaItems(): Boolean = player.mediaItemCount > 0
 
+    fun isPlaying(): Boolean = player.isPlaying
+
+    fun notificationQueueTitle(): String = currentQueueTitle
+
     fun shouldRemainWhenTaskRemoved(): Boolean = PlaybackTaskPolicy.shouldKeepService(
         hasMediaItems = player.mediaItemCount > 0,
         playWhenReady = player.playWhenReady,
@@ -294,6 +309,7 @@ internal class PlaybackController(
 
     fun release() {
         Log.i(TAG, "Releasing Player and MediaSession")
+        persistPlaybackState(force = true, synchronous = true)
         scope.cancel()
         mediaSession.release()
         player.release()
@@ -307,11 +323,7 @@ internal class PlaybackController(
             activePlaylistId = currentPlaylistId,
             isPlaying = player.isPlaying,
             shuffleEnabled = player.shuffleModeEnabled,
-            repeatMode = when (player.repeatMode) {
-                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-                else -> RepeatMode.NONE
-            },
+            repeatMode = player.repeatMode.toRepeatMode(),
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeIf { it > 0L } ?: 0L,
         )
@@ -343,6 +355,7 @@ internal class PlaybackController(
                     .setTitle(track.title)
                     .setArtist(track.artist)
                     .setAlbumTitle(track.album)
+                    .setDurationMs(track.durationMs.takeIf { it > 0L })
                     .setArtworkUri(track.artworkPath?.let(::File)?.toUri())
                     .build(),
             )
@@ -377,8 +390,10 @@ internal class PlaybackController(
         player.setMediaItems(restoredQueue.map(::mediaItem), startIndex, positionMs)
         player.shuffleModeEnabled = playbackPreferences.getBoolean(KEY_SHUFFLE, false)
         player.repeatMode = playbackPreferences.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
-        if (player.shuffleModeEnabled && player.repeatMode == Player.REPEAT_MODE_OFF) {
-            player.repeatMode = Player.REPEAT_MODE_ALL
+        if (player.shuffleModeEnabled) {
+            player.repeatMode = PlaybackModePolicy
+                .repeatAfterShuffleEnabled(player.repeatMode.toRepeatMode())
+                .toPlayerRepeatMode()
         }
         player.prepare()
         if (playbackPreferences.getBoolean(KEY_PLAY_WHEN_READY, false)) {
@@ -387,10 +402,14 @@ internal class PlaybackController(
         publishState()
     }
 
-    private fun persistPlaybackState() {
+    private fun persistPlaybackState(
+        force: Boolean = false,
+        synchronous: Boolean = false,
+    ) {
         if (currentQueue.isEmpty() || player.mediaItemCount == 0) {
             if (lastPersistedState != null || playbackPreferences.contains(KEY_QUEUE_IDS)) {
-                playbackPreferences.edit().clear().apply()
+                val editor = playbackPreferences.edit().clear()
+                if (synchronous) editor.commit() else editor.apply()
                 lastPersistedState = null
             }
             return
@@ -406,9 +425,9 @@ internal class PlaybackController(
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
         )
-        if (persistedState == lastPersistedState) return
+        if (!force && persistedState == lastPersistedState) return
 
-        playbackPreferences.edit()
+        val editor = playbackPreferences.edit()
             .putString(KEY_QUEUE_IDS, persistedState.queueIds.joinToString(","))
             .putString(KEY_QUEUE_TITLE, persistedState.queueTitle)
             .putString(KEY_PLAYLIST_ID, persistedState.playlistId)
@@ -417,7 +436,7 @@ internal class PlaybackController(
             .putBoolean(KEY_PLAY_WHEN_READY, persistedState.playWhenReady)
             .putBoolean(KEY_SHUFFLE, persistedState.shuffleEnabled)
             .putInt(KEY_REPEAT_MODE, persistedState.repeatMode)
-            .apply()
+        if (synchronous) editor.commit() else editor.apply()
         lastPersistedState = persistedState
     }
 
@@ -444,20 +463,56 @@ internal class PlaybackController(
         val repeatMode: Int,
     )
 
-    private companion object {
-        const val SEEK_INCREMENT_MS = 10_000L
-        const val DEFAULT_QUEUE_TITLE = "Библиотека"
-        const val PERSIST_POSITION_INTERVAL_MS = 5_000L
-        const val PLAYBACK_PREFERENCES = "luxmusic_playback_state"
-        const val KEY_QUEUE_IDS = "queue_ids"
-        const val KEY_QUEUE_TITLE = "queue_title"
-        const val KEY_PLAYLIST_ID = "playlist_id"
-        const val KEY_CURRENT_TRACK_ID = "current_track_id"
-        const val KEY_POSITION_MS = "position_ms"
-        const val KEY_PLAY_WHEN_READY = "play_when_ready"
-        const val KEY_SHUFFLE = "shuffle"
-        const val KEY_REPEAT_MODE = "repeat_mode"
-        const val TAG = "LuxPlayback"
+    companion object {
+        internal fun hasPersistedQueue(context: Context): Boolean {
+            return context.getSharedPreferences(PLAYBACK_PREFERENCES, Context.MODE_PRIVATE)
+                .getString(KEY_QUEUE_IDS, null)
+                ?.split(',')
+                ?.any(String::isNotBlank) == true
+        }
+
+        private const val SEEK_INCREMENT_MS = 10_000L
+        private const val DEFAULT_QUEUE_TITLE = "Библиотека"
+        private const val PERSIST_POSITION_INTERVAL_MS = 5_000L
+        private const val PLAYBACK_PREFERENCES = "luxmusic_playback_state"
+        private const val KEY_QUEUE_IDS = "queue_ids"
+        private const val KEY_QUEUE_TITLE = "queue_title"
+        private const val KEY_PLAYLIST_ID = "playlist_id"
+        private const val KEY_CURRENT_TRACK_ID = "current_track_id"
+        private const val KEY_POSITION_MS = "position_ms"
+        private const val KEY_PLAY_WHEN_READY = "play_when_ready"
+        private const val KEY_SHUFFLE = "shuffle"
+        private const val KEY_REPEAT_MODE = "repeat_mode"
+        private const val TAG = "LuxPlayback"
+    }
+}
+
+private fun Int.toRepeatMode(): RepeatMode = when (this) {
+    Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+    Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+    else -> RepeatMode.NONE
+}
+
+private fun RepeatMode.toPlayerRepeatMode(): Int = when (this) {
+    RepeatMode.NONE -> Player.REPEAT_MODE_OFF
+    RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+    RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+}
+
+internal object PlaybackModePolicy {
+    fun repeatAfterShuffleEnabled(current: RepeatMode): RepeatMode {
+        return if (current == RepeatMode.NONE) RepeatMode.ALL else current
+    }
+
+    fun nextRepeat(current: RepeatMode, shuffleEnabled: Boolean): RepeatMode {
+        if (shuffleEnabled) {
+            return if (current == RepeatMode.ONE) RepeatMode.ALL else RepeatMode.ONE
+        }
+        return when (current) {
+            RepeatMode.NONE -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.NONE
+        }
     }
 }
 

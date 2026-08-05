@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIncomingIntent(intent)
         enableEdgeToEdge()
+        viewModel.restorePlayback()
 
         setContent {
             LuxMusicTheme {
