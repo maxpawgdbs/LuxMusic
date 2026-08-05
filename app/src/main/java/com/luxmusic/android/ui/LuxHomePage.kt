@@ -62,6 +62,7 @@ internal fun LuxHomePage(
                 onSeekToFraction = onSeekToFraction,
             )
         }
+        item { LuxTelegramBanner() }
     }
 }
 

@@ -33,7 +33,7 @@
         </activity>
 
         <service
-            android:name=".playback.PlaybackNotificationService"
+            android:name=".playback.PlaybackSessionService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
             android:stopWithTask="false">

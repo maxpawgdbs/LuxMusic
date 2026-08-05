@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +57,7 @@ internal fun LuxMusicRoot(
     snackbarHostState: SnackbarHostState,
     onSelectTab: (LuxTab) -> Unit,
     onSearchChange: (String) -> Unit,
-    onImportClick: () -> Unit,
+    onImportClick: (String?) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onAddTrackToPlaylist: (String, String) -> Unit,
     onRemoveTrackFromPlaylist: (String, String) -> Unit,
@@ -77,13 +78,16 @@ internal fun LuxMusicRoot(
     onSeekToFraction: (Float) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
     onDownloadTitleChange: (String) -> Unit,
-    onDownloadLink: (String, String) -> Unit,
+    onDownloadLink: (String, String, String?) -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
         uiState.playback.queueTrackIds.mapNotNull(tracksById::get)
     }
     var showQueue by rememberSaveable { mutableStateOf(false) }
+    var showImportDialog by rememberSaveable { mutableStateOf(false) }
+    var importCreatePlaylist by rememberSaveable { mutableStateOf(false) }
+    var importPlaylistName by rememberSaveable { mutableStateOf("") }
     var showCreatePlaylist by rememberSaveable { mutableStateOf(false) }
     var createPlaylistName by rememberSaveable { mutableStateOf("") }
     var openedPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -207,10 +211,9 @@ internal fun LuxMusicRoot(
                                         LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
                                         LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
                                     },
-                                    contentDescription = null,
+                                    contentDescription = tab.title(),
                                 )
                             },
-                            label = { Text(tab.title()) },
                         )
                     }
                 }
@@ -247,6 +250,7 @@ internal fun LuxMusicRoot(
                         currentTrackId = uiState.currentTrack?.id,
                         librarySize = uiState.library.size,
                         playlistCount = uiState.playlists.size,
+                        totalDurationMs = uiState.library.sumOf(Track::durationMs),
                         onQueryChange = onSearchChange,
                         onPlay = onPlayTrack,
                         onShowLyrics = { lyricsTrack = it },
@@ -266,6 +270,7 @@ internal fun LuxMusicRoot(
                         LuxArtistsPage(
                             contentPadding = paddingValues,
                             tracks = uiState.library,
+                            currentArtist = uiState.currentTrack?.artist,
                             onOpenArtist = { openedArtistName = it },
                         )
                     } else {
@@ -322,15 +327,69 @@ internal fun LuxMusicRoot(
                         onUrlChange = onDownloadUrlChange,
                         title = uiState.downloadTitle,
                         onTitleChange = onDownloadTitleChange,
-                        onImportClick = onImportClick,
-                        onDownload = {
-                            onDownloadLink(uiState.downloadUrl, uiState.downloadTitle)
+                        onImportClick = { showImportDialog = true },
+                        onDownload = { playlistName ->
+                            onDownloadLink(
+                                uiState.downloadUrl,
+                                uiState.downloadTitle,
+                                playlistName,
+                            )
                         },
                         uiState = uiState,
                     )
                 }
             }
         }
+    }
+
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("Импорт музыки") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Можно выбрать несколько аудиофайлов или один ZIP-архив.")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { importCreatePlaylist = !importCreatePlaylist },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = importCreatePlaylist,
+                            onCheckedChange = { importCreatePlaylist = it },
+                        )
+                        Text("Создать плейлист из выбранных файлов")
+                    }
+                    if (importCreatePlaylist) {
+                        OutlinedTextField(
+                            value = importPlaylistName,
+                            onValueChange = { importPlaylistName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Название плейлиста") },
+                            singleLine = true,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onImportClick(
+                            importPlaylistName.trim().takeIf { importCreatePlaylist },
+                        )
+                        showImportDialog = false
+                    },
+                    enabled = !importCreatePlaylist || importPlaylistName.isNotBlank(),
+                    colors = luxPrimaryButtonColors(),
+                ) {
+                    Text("Выбрать файлы")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportDialog = false }) { Text("Отмена") }
+            },
+        )
     }
 
     if (showCreatePlaylist) {

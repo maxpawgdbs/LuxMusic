@@ -12,7 +12,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.BufferedInputStream
 import java.util.UUID
+import java.util.zip.ZipInputStream
+import java.io.IOException
 
 class LibraryStore(private val context: Context) {
     private val writeMutex = Mutex()
@@ -29,9 +32,13 @@ class LibraryStore(private val context: Context) {
     suspend fun importUris(uris: List<Uri>): List<Track> = withContext(Dispatchers.IO) {
         buildList {
             for (uri in uris) {
-                runCatching { importUriInternal(uri) }
-                    .getOrNull()
-                    ?.let(::add)
+                if (isZipUri(uri)) {
+                    addAll(runCatching { importZipUriInternal(uri) }.getOrDefault(emptyList()))
+                } else {
+                    runCatching { importUriInternal(uri) }
+                        .getOrNull()
+                        ?.let(::add)
+                }
             }
         }
     }
@@ -55,11 +62,14 @@ class LibraryStore(private val context: Context) {
         }
     }
 
-    suspend fun createPlaylist(name: String): Playlist = withContext(Dispatchers.IO) {
+    suspend fun createPlaylist(
+        name: String,
+        trackIds: List<String> = emptyList(),
+    ): Playlist = withContext(Dispatchers.IO) {
         val playlist = Playlist(
             id = UUID.randomUUID().toString(),
             name = name.trim(),
-            trackIds = emptyList(),
+            trackIds = trackIds.distinct(),
             createdAt = System.currentTimeMillis(),
         )
 
@@ -190,6 +200,71 @@ class LibraryStore(private val context: Context) {
         }
     }
 
+    private suspend fun importZipUriInternal(uri: Uri): List<Track> {
+        val imported = mutableListOf<Track>()
+        val source = context.contentResolver.openInputStream(uri) ?: return emptyList()
+        var entriesRead = 0
+        var totalBytes = 0L
+
+        BufferedInputStream(source).use { buffered ->
+            ZipInputStream(buffered).use { zip ->
+                try {
+                    while (true) {
+                        val entry = zip.nextEntry ?: break
+                        entriesRead += 1
+                        if (entriesRead > ImportFileRules.MAX_ZIP_ENTRIES) break
+
+                        val displayName = ImportFileRules.supportedZipAudioName(
+                            entryName = entry.name,
+                            isDirectory = entry.isDirectory,
+                            declaredSize = entry.size,
+                        )
+                        if (displayName != null) {
+                            val extension = displayName.substringAfterLast('.').lowercase()
+                            val temporaryFile = File(
+                                tracksDir,
+                                "incoming-${UUID.randomUUID()}.$extension",
+                            )
+                            try {
+                                var entryBytes = 0L
+                                temporaryFile.outputStream().use { output ->
+                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                    while (true) {
+                                        val read = zip.read(buffer)
+                                        if (read < 0) break
+                                        entryBytes += read
+                                        totalBytes += read
+                                        if (
+                                            entryBytes > ImportFileRules.MAX_ZIP_ENTRY_BYTES ||
+                                            totalBytes > ImportFileRules.MAX_ZIP_TOTAL_BYTES
+                                        ) {
+                                            throw IllegalArgumentException("ZIP-архив слишком большой.")
+                                        }
+                                        output.write(buffer, 0, read)
+                                    }
+                                }
+                                importFileInternal(
+                                    sourceFile = temporaryFile,
+                                    displayName = displayName,
+                                    sourceUrl = null,
+                                    companionFiles = emptyList(),
+                                )?.let(imported::add)
+                            } finally {
+                                temporaryFile.delete()
+                            }
+                        }
+                        zip.closeEntry()
+                    }
+                } catch (_: IOException) {
+                    // Keep tracks already imported from a readable prefix of a damaged archive.
+                } catch (_: IllegalArgumentException) {
+                    // Keep tracks already imported from a valid prefix and stop on unsafe input.
+                }
+            }
+        }
+        return imported
+    }
+
     private suspend fun importFileInternal(
         sourceFile: File,
         displayName: String,
@@ -271,6 +346,14 @@ class LibraryStore(private val context: Context) {
             }
     }
 
+    private fun isZipUri(uri: Uri): Boolean {
+        val displayName = queryDisplayName(uri).orEmpty()
+        val mimeType = context.contentResolver.getType(uri).orEmpty()
+        return displayName.endsWith(".zip", ignoreCase = true) ||
+            mimeType.equals("application/zip", ignoreCase = true) ||
+            mimeType.equals("application/x-zip-compressed", ignoreCase = true)
+    }
+
     private fun JSONArray?.toTracks(): List<Track> {
         if (this == null) return emptyList()
 
@@ -330,4 +413,5 @@ class LibraryStore(private val context: Context) {
     private fun JSONObject.optStringOrNull(name: String): String? {
         return if (has(name) && !isNull(name)) getString(name) else null
     }
+
 }

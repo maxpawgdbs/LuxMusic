@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
@@ -22,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -89,6 +92,48 @@ internal fun LuxStatChip(icon: ImageVector, value: String, label: String) {
             Column {
                 Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun LuxTelegramBanner() {
+    val uriHandler = LocalUriHandler.current
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+        onClick = { uriHandler.openUri("https://t.me/luxmusic_gdbs") },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Rounded.Send,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    "Подписывайтесь на канал разработки!",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "t.me/luxmusic_gdbs",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                )
             }
         }
     }
@@ -169,4 +214,15 @@ internal fun repeatLabel(mode: RepeatMode): String = when (mode) {
     RepeatMode.NONE -> "Без повтора"
     RepeatMode.ALL -> "Повтор списка"
     RepeatMode.ONE -> "Повтор трека"
+}
+
+internal fun formatCollectionDuration(durationMs: Long): String {
+    val totalMinutes = (durationMs.coerceAtLeast(0L) / 60_000L)
+    val hours = totalMinutes / 60L
+    val minutes = totalMinutes % 60L
+    return when {
+        hours > 0L && minutes > 0L -> "$hours ч $minutes мин"
+        hours > 0L -> "$hours ч"
+        else -> "$minutes мин"
+    }
 }

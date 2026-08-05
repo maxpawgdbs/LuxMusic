@@ -1,5 +1,6 @@
 package com.luxmusic.android.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,10 +26,12 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -45,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +67,7 @@ internal fun LuxLibraryPage(
     currentTrackId: String?,
     librarySize: Int,
     playlistCount: Int,
+    totalDurationMs: Long,
     onQueryChange: (String) -> Unit,
     onPlay: (String) -> Unit,
     onShowLyrics: (Track) -> Unit,
@@ -95,6 +100,11 @@ internal fun LuxLibraryPage(
                             Icons.AutoMirrored.Rounded.QueueMusic,
                             playlistCount.toString(),
                             "Плейлистов",
+                        )
+                        LuxStatChip(
+                            Icons.Rounded.Schedule,
+                            formatCollectionDuration(totalDurationMs),
+                            "Общее время",
                         )
                     }
                 }
@@ -226,6 +236,7 @@ internal fun LuxLibraryPage(
                 }
             }
         }
+        item { LuxTelegramBanner() }
     }
 }
 
@@ -292,7 +303,7 @@ internal fun LuxPlaylistsPage(
                                 style = MaterialTheme.typography.titleLarge,
                             )
                             Text(
-                                text = "${tracks.size} трек(ов)",
+                                text = "${tracks.size} трек(ов) • ${formatCollectionDuration(tracks.sumOf(Track::durationMs))}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -321,6 +332,7 @@ internal fun LuxPlaylistsPage(
                 Text("Создать плейлист")
             }
         }
+        item { LuxTelegramBanner() }
     }
 }
 
@@ -374,7 +386,7 @@ internal fun LuxPlaylistDetailPage(
                                 style = MaterialTheme.typography.headlineSmall,
                             )
                             Text(
-                                text = "${tracks.size} трек(ов)",
+                                text = "${tracks.size} трек(ов) • ${formatCollectionDuration(tracks.sumOf(Track::durationMs))}",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -530,6 +542,7 @@ internal fun LuxPlaylistDetailPage(
                 }
             }
         }
+        item { LuxTelegramBanner() }
     }
 }
 
@@ -537,6 +550,7 @@ internal fun LuxPlaylistDetailPage(
 internal fun LuxArtistsPage(
     contentPadding: PaddingValues,
     tracks: List<Track>,
+    currentArtist: String?,
     onOpenArtist: (String) -> Unit,
 ) {
     val artists = remember(tracks) {
@@ -559,9 +573,21 @@ internal fun LuxArtistsPage(
             }
         } else {
             items(artists, key = { it.first }) { (artist, artistTracks) ->
+                val isCurrent = artist.equals(currentArtist, ignoreCase = true)
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = luxCardColors(),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = if (isCurrent) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        contentColor = if (isCurrent) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    ),
                     onClick = { onOpenArtist(artist) },
                 ) {
                     Row(
@@ -593,6 +619,7 @@ internal fun LuxArtistsPage(
                 }
             }
         }
+        item { LuxTelegramBanner() }
     }
 }
 
@@ -686,6 +713,7 @@ internal fun LuxArtistDetailPage(
                 }
             }
         }
+        item { LuxTelegramBanner() }
     }
 }
 
@@ -755,6 +783,7 @@ internal fun LuxQueuePage(
                 }
             }
         }
+        item { LuxTelegramBanner() }
     }
 }
 
@@ -766,9 +795,12 @@ internal fun LuxDownloadPage(
     title: String,
     onTitleChange: (String) -> Unit,
     onImportClick: () -> Unit,
-    onDownload: () -> Unit,
+    onDownload: (String?) -> Unit,
     uiState: LuxMusicUiState,
 ) {
+    var createPlaylist by rememberSaveable { mutableStateOf(false) }
+    var playlistName by rememberSaveable { mutableStateOf("") }
+
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -782,7 +814,7 @@ internal fun LuxDownloadPage(
             ) {
                 Icon(Icons.Rounded.UploadFile, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Импортировать из файла")
+                Text("Выбрать аудиофайлы или ZIP")
             }
         }
         item {
@@ -815,9 +847,39 @@ internal fun LuxDownloadPage(
                         enabled = !uiState.download.isRunning,
                         singleLine = true,
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !uiState.download.isRunning) {
+                                createPlaylist = !createPlaylist
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = createPlaylist,
+                            onCheckedChange = { createPlaylist = it },
+                            enabled = !uiState.download.isRunning,
+                        )
+                        Text("Создать плейлист после загрузки")
+                    }
+                    if (createPlaylist) {
+                        OutlinedTextField(
+                            value = playlistName,
+                            onValueChange = { playlistName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Название плейлиста") },
+                            enabled = !uiState.download.isRunning,
+                            singleLine = true,
+                        )
+                    }
                     Button(
-                        onClick = onDownload,
-                        enabled = uiState.download.isAvailable && !uiState.download.isRunning && url.isNotBlank(),
+                        onClick = {
+                            onDownload(playlistName.trim().takeIf { createPlaylist })
+                        },
+                        enabled = uiState.download.isAvailable &&
+                            !uiState.download.isRunning &&
+                            url.isNotBlank() &&
+                            (!createPlaylist || playlistName.isNotBlank()),
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                         colors = luxPrimaryButtonColors(),
@@ -847,5 +909,6 @@ internal fun LuxDownloadPage(
                 }
             }
         }
+        item { LuxTelegramBanner() }
     }
 }

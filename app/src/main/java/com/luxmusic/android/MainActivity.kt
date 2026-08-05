@@ -14,7 +14,11 @@ import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luxmusic.android.ui.LuxMusicScreen
 import com.luxmusic.android.ui.theme.LuxMusicTheme
@@ -31,10 +35,12 @@ class MainActivity : ComponentActivity() {
             LuxMusicTheme {
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
+                var pendingImportPlaylistName by rememberSaveable { mutableStateOf<String?>(null) }
                 val importLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments(),
                 ) { uris ->
-                    viewModel.importAudio(uris)
+                    viewModel.importAudio(uris, pendingImportPlaylistName)
+                    pendingImportPlaylistName = null
                 }
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission(),
@@ -61,11 +67,14 @@ class MainActivity : ComponentActivity() {
                     snackbarHostState = snackbarHostState,
                     onSelectTab = viewModel::selectTab,
                     onSearchChange = viewModel::updateSearch,
-                    onImportClick = {
+                    onImportClick = { playlistName ->
+                        pendingImportPlaylistName = playlistName
                         importLauncher.launch(
                             arrayOf(
                                 "audio/*",
                                 "application/ogg",
+                                "application/zip",
+                                "application/x-zip-compressed",
                                 "application/octet-stream",
                             ),
                         )

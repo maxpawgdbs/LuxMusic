@@ -3,8 +3,6 @@ package com.luxmusic.android.playback
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -30,16 +28,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
-
-data class PlaybackNotificationSnapshot(
-    val title: String,
-    val contentText: String,
-    val subText: String,
-    val isPlaying: Boolean,
-    val positionMs: Long,
-    val durationMs: Long,
-    val artwork: Bitmap?,
-)
 
 @UnstableApi
 class PlaybackController(
@@ -67,10 +55,7 @@ class PlaybackController(
     private var currentQueue: List<Track> = emptyList()
     private var currentQueueTitle: String = DEFAULT_QUEUE_TITLE
     private var currentPlaylistId: String? = null
-    private var cachedNotificationArtworkPath: String? = null
-    private var cachedNotificationArtwork: Bitmap? = null
-    private var playbackForegroundServiceActive = false
-    private var lastNotificationSyncState: NotificationSyncState? = null
+    private var sessionServiceActive = false
     private var lastPersistedState: PersistedPlaybackState? = null
 
     private val mediaSession = MediaSession.Builder(appContext, player)
@@ -203,14 +188,21 @@ class PlaybackController(
 
     fun toggleShuffle() {
         player.shuffleModeEnabled = !player.shuffleModeEnabled
+        if (player.shuffleModeEnabled) {
+            player.repeatMode = Player.REPEAT_MODE_ALL
+        }
         publishState()
     }
 
     fun cycleRepeatMode() {
-        player.repeatMode = when (player.repeatMode) {
-            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-            else -> Player.REPEAT_MODE_OFF
+        player.repeatMode = if (player.shuffleModeEnabled) {
+            Player.REPEAT_MODE_ALL
+        } else {
+            when (player.repeatMode) {
+                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                else -> Player.REPEAT_MODE_OFF
+            }
         }
         publishState()
     }
@@ -275,9 +267,8 @@ class PlaybackController(
         publishState()
     }
 
-    fun onNotificationServiceStopped() {
-        playbackForegroundServiceActive = false
-        lastNotificationSyncState = null
+    fun onSessionServiceStopped() {
+        sessionServiceActive = false
     }
 
     fun removeTrack(trackId: String) {
@@ -298,34 +289,14 @@ class PlaybackController(
         publishState()
     }
 
-    fun notificationSnapshot(): PlaybackNotificationSnapshot? {
-        val track = currentTrack() ?: return null
-        val durationMs = player.duration
-            .takeIf { it > 0L }
-            ?: track.durationMs.takeIf { it > 0L }
-            ?: 0L
-        val safeDurationMs = durationMs.coerceAtLeast(0L)
-        val safePositionMs = player.currentPosition
-            .coerceAtLeast(0L)
-            .coerceAtMost(safeDurationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
-        return PlaybackNotificationSnapshot(
-            title = track.title.ifBlank { "LuxMusic" },
-            contentText = trackDetails(track),
-            subText = notificationSubText(),
-            isPlaying = player.isPlaying,
-            positionMs = safePositionMs,
-            durationMs = safeDurationMs,
-            artwork = currentArtwork(),
-        )
-    }
+    fun mediaSession(): MediaSession = mediaSession
 
-    fun notificationMediaSession(): MediaSession = mediaSession
+    fun hasMediaItems(): Boolean = player.mediaItemCount > 0
 
     fun release() {
         scope.cancel()
-        PlaybackNotificationService.stop(appContext)
-        playbackForegroundServiceActive = false
-        lastNotificationSyncState = null
+        PlaybackSessionService.stop(appContext)
+        sessionServiceActive = false
         mediaSession.release()
         player.release()
     }
@@ -333,7 +304,7 @@ class PlaybackController(
     private fun publishState() {
         mutableState.value = PlaybackState(
             currentTrackId = player.currentMediaItem?.mediaId,
-            queueTrackIds = currentQueue.map(Track::id),
+            queueTrackIds = visibleQueueIds(),
             queueTitle = currentQueueTitle,
             activePlaylistId = currentPlaylistId,
             isPlaying = player.isPlaying,
@@ -347,43 +318,37 @@ class PlaybackController(
             durationMs = player.duration.takeIf { it > 0L } ?: 0L,
         )
         persistPlaybackState()
-        syncPlaybackNotification()
+        syncSessionService()
     }
 
-    private fun syncPlaybackNotification() {
-        val syncState = notificationSyncState()
-        if (syncState == null) {
-            if (playbackForegroundServiceActive) {
-                PlaybackNotificationService.stop(appContext)
-                playbackForegroundServiceActive = false
+    private fun syncSessionService() {
+        if (player.mediaItemCount == 0) {
+            if (sessionServiceActive) {
+                PlaybackSessionService.stop(appContext)
+                sessionServiceActive = false
             }
-            lastNotificationSyncState = null
             return
         }
 
-        if (!playbackForegroundServiceActive || syncState != lastNotificationSyncState) {
-            PlaybackNotificationService.startOrUpdate(appContext)
-            playbackForegroundServiceActive = true
-            lastNotificationSyncState = syncState
+        if (!sessionServiceActive) {
+            PlaybackSessionService.start(appContext)
+            sessionServiceActive = true
         }
     }
 
-    private fun notificationSyncState(): NotificationSyncState? {
-        val track = currentTrack() ?: return null
-        return NotificationSyncState(
-            trackId = track.id,
-            queueTitle = currentQueueTitle,
-            isPlaying = player.isPlaying,
-            mediaItemIndex = player.currentMediaItemIndex,
-            repeatMode = player.repeatMode,
-            shuffleEnabled = player.shuffleModeEnabled,
-            artworkPath = track.artworkPath,
-        )
-    }
+    private fun visibleQueueIds(): List<String> {
+        if (player.mediaItemCount == 0) return emptyList()
 
-    private fun currentTrack(): Track? {
-        val currentId = player.currentMediaItem?.mediaId ?: return null
-        return currentQueue.firstOrNull { it.id == currentId }
+        var index = player.currentMediaItemIndex
+        if (index == C.INDEX_UNSET) return currentQueue.map(Track::id)
+
+        val visited = mutableSetOf<Int>()
+        val orderedIds = mutableListOf<String>()
+        while (index != C.INDEX_UNSET && visited.add(index)) {
+            orderedIds += player.getMediaItemAt(index).mediaId
+            index = player.getNextMediaItemIndex()
+        }
+        return orderedIds
     }
 
     private fun mediaItem(track: Track): MediaItem {
@@ -429,6 +394,9 @@ class PlaybackController(
         player.setMediaItems(restoredQueue.map(::mediaItem), startIndex, positionMs)
         player.shuffleModeEnabled = playbackPreferences.getBoolean(KEY_SHUFFLE, false)
         player.repeatMode = playbackPreferences.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
+        if (player.shuffleModeEnabled && player.repeatMode == Player.REPEAT_MODE_OFF) {
+            player.repeatMode = Player.REPEAT_MODE_ALL
+        }
         player.prepare()
         if (playbackPreferences.getBoolean(KEY_PLAY_WHEN_READY, false)) {
             player.play()
@@ -470,59 +438,6 @@ class PlaybackController(
         lastPersistedState = persistedState
     }
 
-    private fun currentArtwork(): Bitmap? {
-        val artworkPath = currentTrack()?.artworkPath ?: run {
-            cachedNotificationArtworkPath = null
-            cachedNotificationArtwork = null
-            return null
-        }
-        if (cachedNotificationArtworkPath != artworkPath) {
-            cachedNotificationArtworkPath = artworkPath
-            cachedNotificationArtwork = decodeNotificationArtwork(artworkPath)
-        }
-        return cachedNotificationArtwork
-    }
-
-    private fun decodeNotificationArtwork(artworkPath: String): Bitmap? {
-        return runCatching {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(artworkPath, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-
-            var sampleSize = 1
-            while (
-                bounds.outWidth / sampleSize > MAX_NOTIFICATION_ARTWORK_PX ||
-                bounds.outHeight / sampleSize > MAX_NOTIFICATION_ARTWORK_PX
-            ) {
-                sampleSize *= 2
-            }
-
-            BitmapFactory.decodeFile(
-                artworkPath,
-                BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
-                },
-            )
-        }.getOrNull()
-    }
-
-    private fun trackDetails(track: Track): String {
-        val parts = listOf(track.artist, track.album)
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .distinct()
-        return when {
-            parts.isNotEmpty() -> parts.joinToString(" • ")
-            currentQueueTitle.isNotBlank() -> currentQueueTitle
-            else -> "LuxMusic"
-        }
-    }
-
-    private fun notificationSubText(): String {
-        return "Из: $currentQueueTitle"
-    }
-
     private fun contentIntent(): PendingIntent {
         val intent = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -534,16 +449,6 @@ class PlaybackController(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
-
-    private data class NotificationSyncState(
-        val trackId: String,
-        val queueTitle: String,
-        val isPlaying: Boolean,
-        val mediaItemIndex: Int,
-        val repeatMode: Int,
-        val shuffleEnabled: Boolean,
-        val artworkPath: String?,
-    )
 
     private data class PersistedPlaybackState(
         val queueIds: List<String>,
@@ -558,7 +463,6 @@ class PlaybackController(
 
     private companion object {
         const val SEEK_INCREMENT_MS = 10_000L
-        const val MAX_NOTIFICATION_ARTWORK_PX = 256
         const val DEFAULT_QUEUE_TITLE = "Библиотека"
         const val PERSIST_POSITION_INTERVAL_MS = 5_000L
         const val PLAYBACK_PREFERENCES = "luxmusic_playback_state"

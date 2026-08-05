@@ -128,17 +128,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectedTab.value = LuxTab.DOWNLOAD
     }
 
-    fun importAudio(uris: List<Uri>) {
+    fun importAudio(uris: List<Uri>, playlistName: String? = null) {
         if (uris.isEmpty()) return
 
         viewModelScope.launch {
             val imported = libraryStore.importUris(uris)
+            val normalizedPlaylistName = playlistName?.trim().orEmpty()
             if (imported.isNotEmpty()) {
-                selectedTab.value = LuxTab.LIBRARY
+                if (normalizedPlaylistName.isNotEmpty()) {
+                    libraryStore.createPlaylist(
+                        name = normalizedPlaylistName,
+                        trackIds = imported.map(Track::id),
+                    )
+                    selectedTab.value = LuxTab.PLAYLISTS
+                } else {
+                    selectedTab.value = LuxTab.LIBRARY
+                }
             }
             messagesFlow.emit(
                 if (imported.isEmpty()) {
                     "Не удалось импортировать выбранные файлы."
+                } else if (normalizedPlaylistName.isNotEmpty()) {
+                    "Добавлено ${imported.size} трек(ов) и создан плейлист «$normalizedPlaylistName»."
                 } else {
                     "Добавлено ${imported.size} трек(ов) в локальную библиотеку."
                 },
@@ -287,9 +298,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectQueueTrack(trackId: String) = playbackController.selectQueueTrack(trackId)
 
-    fun downloadFromLink(url: String, title: String) {
+    fun downloadFromLink(url: String, title: String, playlistName: String? = null) {
         val normalized = url.trim()
         val customTitle = title.trim()
+        val normalizedPlaylistName = playlistName?.trim().orEmpty()
         if (normalized.isBlank()) return
 
         viewModelScope.launch {
@@ -300,10 +312,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         libraryStore.updateTrackDetails(track.id, customTitle, track.artist)
                     }
                 }
+                if (normalizedPlaylistName.isNotEmpty()) {
+                    libraryStore.createPlaylist(
+                        name = normalizedPlaylistName,
+                        trackIds = imported.map(Track::id),
+                    )
+                }
                 downloadUrl.value = ""
                 downloadTitle.value = ""
-                selectedTab.value = LuxTab.LIBRARY
-                messagesFlow.emit("Скачано и сохранено ${imported.size} трек(ов).")
+                selectedTab.value = if (normalizedPlaylistName.isNotEmpty()) {
+                    LuxTab.PLAYLISTS
+                } else {
+                    LuxTab.LIBRARY
+                }
+                messagesFlow.emit(
+                    if (normalizedPlaylistName.isNotEmpty()) {
+                        "Скачано ${imported.size} трек(ов) и создан плейлист «$normalizedPlaylistName»."
+                    } else {
+                        "Скачано и сохранено ${imported.size} трек(ов)."
+                    },
+                )
             }.onFailure { error ->
                 messagesFlow.emit(error.message ?: "Не удалось скачать музыку по ссылке.")
             }

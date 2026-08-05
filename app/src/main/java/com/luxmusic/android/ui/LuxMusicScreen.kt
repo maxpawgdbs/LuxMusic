@@ -11,7 +11,7 @@ fun LuxMusicScreen(
     snackbarHostState: SnackbarHostState,
     onSelectTab: (LuxTab) -> Unit,
     onSearchChange: (String) -> Unit,
-    onImportClick: () -> Unit,
+    onImportClick: (String?) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onAddTrackToPlaylist: (String, String) -> Unit,
     onRemoveTrackFromPlaylist: (String, String) -> Unit,
@@ -32,7 +32,7 @@ fun LuxMusicScreen(
     onSeekToFraction: (Float) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
     onDownloadTitleChange: (String) -> Unit,
-    onDownloadLink: (String, String) -> Unit,
+    onDownloadLink: (String, String, String?) -> Unit,
 ) {
     LuxMusicRoot(
         uiState = uiState,
