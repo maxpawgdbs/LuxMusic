@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Edit
@@ -46,6 +47,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -945,6 +947,8 @@ internal fun LuxDownloadPage(
     onImportClick: () -> Unit,
     onDownload: (String?) -> Unit,
     onDownloadArchive: (String?) -> Unit,
+    onConnectYandex: () -> Unit,
+    onDisconnectYandex: () -> Unit,
     uiState: LuxMusicUiState,
 ) {
     var createPlaylist by rememberSaveable { mutableStateOf(false) }
@@ -964,6 +968,77 @@ internal fun LuxDownloadPage(
                 Icon(Icons.Rounded.UploadFile, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Выбрать аудиофайлы или ZIP")
+            }
+        }
+        item {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = luxCardColors(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (uiState.yandexAuth.isConnected) {
+                            Icon(
+                                Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Яндекс Музыка", style = MaterialTheme.typography.titleLarge)
+                            uiState.yandexAuth.accountName?.let { account ->
+                                Text(
+                                    account,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (uiState.yandexAuth.isConnected) {
+                            TextButton(onClick = onDisconnectYandex) { Text("Отключить") }
+                        }
+                    }
+                    Text(
+                        uiState.yandexAuth.statusMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    uiState.yandexAuth.userCode?.let { code ->
+                        Text(
+                            text = "Код: $code",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    uiState.yandexAuth.errorMessage?.let { error ->
+                        Text(error, color = MaterialTheme.colorScheme.error)
+                    }
+                    if (!uiState.yandexAuth.isConnected) {
+                        Button(
+                            onClick = onConnectYandex,
+                            enabled = !uiState.yandexAuth.isAuthorizing,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (uiState.yandexAuth.isAuthorizing) {
+                                    "Ждём подтверждение в браузере"
+                                } else {
+                                    "Подключить одной ссылкой"
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
         item {

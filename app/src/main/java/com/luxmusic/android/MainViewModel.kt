@@ -9,8 +9,12 @@ import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.DownloadState
 import com.luxmusic.android.data.PlaybackState
 import com.luxmusic.android.data.Playlist
+import com.luxmusic.android.data.PlaylistDraft
 import com.luxmusic.android.data.Track
 import com.luxmusic.android.download.DownloadParsing
+import com.luxmusic.android.download.DownloadCollectionResult
+import com.luxmusic.android.download.yandex.YandexAuthState
+import com.luxmusic.android.download.yandex.YandexSourceKind
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,6 +45,12 @@ data class LuxMusicUiState(
     val playback: PlaybackState = PlaybackState(),
     val currentTrack: Track? = null,
     val download: DownloadState = DownloadState(),
+    val yandexAuth: YandexAuthState = YandexAuthState(),
+)
+
+data class YandexAuthBrowserRequest(
+    val url: String,
+    val userCode: String,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,8 +65,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val downloadTitle = MutableStateFlow("")
     private val selectedTab = MutableStateFlow(LuxTab.HOME)
     private val messagesFlow = MutableSharedFlow<String>()
+    private val authBrowserRequestsFlow = MutableSharedFlow<YandexAuthBrowserRequest>()
 
     val messages = messagesFlow.asSharedFlow()
+    val authBrowserRequests = authBrowserRequestsFlow.asSharedFlow()
 
     val uiState: StateFlow<LuxMusicUiState> = combine(
         libraryStore.snapshot,
@@ -99,6 +111,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         state.copy(downloadUrl = url)
     }.combine(downloadTitle) { state, title ->
         state.copy(downloadTitle = title)
+    }.combine(linkDownloader.yandexAuthState) { state, yandexAuth ->
+        state.copy(yandexAuth = yandexAuth)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -340,6 +354,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectQueueTrack(trackId: String) = playbackGateway.selectQueueTrack(trackId)
 
+    fun connectYandexMusic() {
+        if (linkDownloader.yandexAuthState.value.isAuthorizing) return
+        viewModelScope.launch {
+            linkDownloader.authorizeYandex { code ->
+                authBrowserRequestsFlow.emit(
+                    YandexAuthBrowserRequest(
+                        url = code.verificationUrl,
+                        userCode = code.userCode,
+                    ),
+                )
+            }.onFailure { error ->
+                messagesFlow.emit(error.message ?: "Не удалось подключить Яндекс Музыку.")
+            }
+        }
+    }
+
+    fun disconnectYandexMusic() {
+        linkDownloader.disconnectYandex()
+        viewModelScope.launch { messagesFlow.emit("Аккаунт Яндекс Музыки отключён.") }
+    }
+
     fun downloadFromLink(url: String, title: String, playlistName: String? = null) {
         val normalized = url.trim()
         val customTitle = title.trim()
@@ -347,30 +382,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (normalized.isBlank()) return
 
         viewModelScope.launch {
-            val imported = linkDownloader.download(normalized).getOrElse { error ->
+            val result = linkDownloader.downloadCollection(normalized).getOrElse { error ->
                 messagesFlow.emit(error.message ?: "Не удалось скачать музыку по ссылке.")
                 return@launch
             }
+            val imported = result.tracks
             if (customTitle.isNotBlank()) {
-                imported.forEach { track ->
+                imported.takeIf { it.size == 1 }?.forEach { track ->
                     runCatching {
                         libraryStore.updateTrackDetails(track.id, customTitle, track.artist)
                     }
                 }
             }
-            val playlistCreated = normalizedPlaylistName.isNotEmpty() &&
-                createPlaylistForImportedTracks(normalizedPlaylistName, imported)
+            val playlistsCreated = createPlaylistsForDownload(
+                result = result,
+                customPlaylistName = normalizedPlaylistName,
+            )
+            val playlistCreated = playlistsCreated > 0
 
             downloadUrl.value = ""
             downloadTitle.value = ""
             selectedTab.value = if (playlistCreated) LuxTab.PLAYLISTS else LuxTab.LIBRARY
-            messagesFlow.emit(
-                when {
+            val completionMessage = when {
+                    playlistsCreated > 1 ->
+                        "Скачано ${imported.size} трек(ов) и создано $playlistsCreated плейлист(ов) по альбомам."
                     playlistCreated ->
-                        "Скачано ${imported.size} трек(ов) и создан плейлист «$normalizedPlaylistName»."
+                        "Скачано ${imported.size} трек(ов) и создан плейлист."
                     normalizedPlaylistName.isNotEmpty() ->
                         "Музыка скачана, но плейлист создать не удалось. Треки сохранены в библиотеке."
                     else -> "Скачано и сохранено ${imported.size} трек(ов)."
+                }
+            messagesFlow.emit(
+                if (result.warnings.isEmpty()) {
+                    completionMessage
+                } else {
+                    "$completionMessage Не удалось скачать: ${result.warnings.size}."
                 },
             )
         }
@@ -414,6 +460,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 trackIds = tracks.map(Track::id),
             )
         }.isSuccess
+    }
+
+    private suspend fun createPlaylistsForDownload(
+        result: DownloadCollectionResult,
+        customPlaylistName: String,
+    ): Int {
+        val drafts = buildList {
+            if (result.sourceKind == YandexSourceKind.ARTIST) {
+                result.playlistGroups.forEach { group ->
+                    val prefix = result.collectionLabel?.takeIf(String::isNotBlank)
+                    add(
+                        PlaylistDraft(
+                            name = listOfNotNull(prefix, group.name).joinToString(" — "),
+                            trackIds = group.trackIds,
+                        ),
+                    )
+                }
+            } else if (result.sourceKind == YandexSourceKind.ALBUM && customPlaylistName.isBlank()) {
+                result.playlistGroups.firstOrNull()?.let { group ->
+                    add(PlaylistDraft(group.name, group.trackIds))
+                }
+            }
+            if (customPlaylistName.isNotBlank()) {
+                add(PlaylistDraft(customPlaylistName, result.tracks.map(Track::id)))
+            }
+        }
+        if (drafts.isEmpty()) return 0
+        return runCatching { libraryStore.createPlaylists(drafts) }.getOrDefault(emptyList()).size
     }
 
     fun importDownloadAccountCookies(service: DownloadService, uri: Uri?) {

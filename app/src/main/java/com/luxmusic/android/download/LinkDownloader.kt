@@ -7,6 +7,12 @@ import com.luxmusic.android.data.ImportFileRules
 import com.luxmusic.android.data.LibraryStore
 import com.luxmusic.android.data.MetadataExtractor
 import com.luxmusic.android.data.Track
+import com.luxmusic.android.download.yandex.YandexAuthState
+import com.luxmusic.android.download.yandex.YandexDeviceCode
+import com.luxmusic.android.download.yandex.YandexMusicDownloader
+import com.luxmusic.android.download.yandex.YandexMusicUrlParser
+import com.luxmusic.android.download.yandex.YandexPlaylistGroup
+import com.luxmusic.android.download.yandex.YandexSourceKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +24,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 
+data class DownloadCollectionResult(
+    val tracks: List<Track>,
+    val collectionLabel: String? = null,
+    val sourceKind: YandexSourceKind? = null,
+    val playlistGroups: List<YandexPlaylistGroup> = emptyList(),
+    val warnings: List<String> = emptyList(),
+)
+
 class LinkDownloader(
     private val context: Context,
     private val libraryStore: LibraryStore,
@@ -25,6 +39,8 @@ class LinkDownloader(
 ) {
     private val mutableState = MutableStateFlow(DownloadState())
     val state: StateFlow<DownloadState> = mutableState.asStateFlow()
+    private val yandexDownloader = YandexMusicDownloader(context, libraryStore)
+    val yandexAuthState: StateFlow<YandexAuthState> = yandexDownloader.authState
 
     private val backend = YtDlpMediaDownloadBackend(context)
     private val metadataResolver = CompositeDownloadMetadataResolver(
@@ -56,14 +72,77 @@ class LinkDownloader(
             )
         } catch (error: Throwable) {
             mutableState.value = DownloadState(
-                isAvailable = false,
-                statusMessage = "Модуль загрузки не инициализировался. После обновления APK переустановите приложение и попробуйте снова.",
+                isAvailable = true,
+                statusMessage = "Обычный загрузчик не инициализировался, но ZIP и Яндекс Музыка доступны.",
                 errorMessage = error.message ?: error::class.java.simpleName,
             )
         }
     }
 
-    suspend fun download(url: String): Result<List<Track>> = withContext(Dispatchers.IO) {
+    suspend fun authorizeYandex(onCode: suspend (YandexDeviceCode) -> Unit): Result<Unit> {
+        return yandexDownloader.authorize(onCode)
+    }
+
+    fun disconnectYandex() = yandexDownloader.disconnect()
+
+    suspend fun download(url: String): Result<List<Track>> {
+        return downloadCollection(url).map(DownloadCollectionResult::tracks)
+    }
+
+    suspend fun downloadCollection(url: String): Result<DownloadCollectionResult> = withContext(Dispatchers.IO) {
+        val normalizedUrl = DownloadParsing.normalizeUserInput(url)
+        if (YandexMusicUrlParser.hasYandexMusicHost(normalizedUrl)) {
+            return@withContext downloadYandex(normalizedUrl)
+        }
+        downloadGeneric(normalizedUrl).map { tracks -> DownloadCollectionResult(tracks = tracks) }
+    }
+
+    private suspend fun downloadYandex(normalizedUrl: String): Result<DownloadCollectionResult> {
+        return runCatching {
+            YandexMusicUrlParser.parse(normalizedUrl)
+            mutableState.value = DownloadState(
+                isAvailable = true,
+                isRunning = true,
+                progress = 0f,
+                statusMessage = "Подготавливаем загрузку из Яндекс Музыки...",
+            )
+            val result = yandexDownloader.download(normalizedUrl) { progress, message ->
+                mutableState.value = DownloadState(
+                    isAvailable = true,
+                    isRunning = true,
+                    progress = progress,
+                    statusMessage = message,
+                )
+            }
+            mutableState.value = DownloadState(
+                isAvailable = true,
+                progress = 1f,
+                statusMessage = if (result.warnings.isEmpty()) {
+                    "Из Яндекс Музыки сохранено ${result.tracks.size} трек(ов)."
+                } else {
+                    "Сохранено ${result.tracks.size} трек(ов), пропущено ${result.warnings.size}."
+                },
+            )
+            DownloadCollectionResult(
+                tracks = result.tracks,
+                collectionLabel = result.collectionLabel,
+                sourceKind = result.sourceKind,
+                playlistGroups = result.playlistGroups,
+                warnings = result.warnings,
+            )
+        }.onFailure { error ->
+            mutableState.value = DownloadState(
+                isAvailable = true,
+                statusMessage = "Не удалось скачать из Яндекс Музыки.",
+                errorMessage = error.message
+                    ?.replace(Regex("https?://\\S+"), "[ссылка скрыта]")
+                    ?.take(400)
+                    ?: "Ошибка Яндекс Музыки.",
+            )
+        }
+    }
+
+    private suspend fun downloadGeneric(url: String): Result<List<Track>> = withContext(Dispatchers.IO) {
         val normalizedUrl = DownloadParsing.normalizeUserInput(url)
         if (!DownloadParsing.isDownloadableUrl(normalizedUrl)) {
             val error = IllegalArgumentException("Вставьте корректную ссылку на страницу с музыкой.")
@@ -180,6 +259,9 @@ class LinkDownloader(
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
                 throw IllegalStateException("Сервер вернул HTTP $responseCode при скачивании архива.")
+            }
+            if (!connection.url.protocol.equals("https", ignoreCase = true)) {
+                throw IllegalArgumentException("Ссылка на ZIP перенаправила на небезопасное соединение.")
             }
 
             val contentLength = connection.contentLengthLong

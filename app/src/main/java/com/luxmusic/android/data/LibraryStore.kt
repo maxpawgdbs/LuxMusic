@@ -71,6 +71,27 @@ class LibraryStore(private val context: Context) {
         persistImportedTracks(preparedTracks)
     }
 
+    suspend fun importDownloadedTracks(items: List<DownloadedTrackImport>): List<DownloadedTrackImportResult> =
+        withContext(Dispatchers.IO) {
+            val preparedTracks = buildList {
+                items.forEach { item ->
+                    runCatching {
+                        item.sourceId to prepareImportedTrack(
+                            sourceFile = item.audioFile,
+                            displayName = item.audioFile.name,
+                            sourceUrl = item.sourceUrl,
+                            companionFiles = emptyList(),
+                            metadataOverride = item,
+                        )
+                    }.getOrNull()?.let(::add)
+                }
+            }
+            val persisted = persistImportedTracks(preparedTracks.map { it.second })
+            preparedTracks.zip(persisted).map { (prepared, track) ->
+                DownloadedTrackImportResult(prepared.first, track)
+            }
+        }
+
     suspend fun importDownloadedArchive(
         archiveFile: File,
         sourceUrl: String?,
@@ -100,6 +121,31 @@ class LibraryStore(private val context: Context) {
         }
 
         playlist
+    }
+
+    suspend fun createPlaylists(drafts: List<PlaylistDraft>): List<Playlist> = withContext(Dispatchers.IO) {
+        val createdAt = System.currentTimeMillis()
+        val playlists = drafts.mapNotNull { draft ->
+            val name = draft.name.trim()
+            if (name.isBlank()) return@mapNotNull null
+            Playlist(
+                id = UUID.randomUUID().toString(),
+                name = name,
+                trackIds = draft.trackIds.distinct(),
+                createdAt = createdAt,
+            )
+        }
+        if (playlists.isEmpty()) return@withContext emptyList()
+
+        writeMutex.withLock {
+            val current = mutableSnapshot.value
+            persist(
+                current.copy(
+                    playlists = (current.playlists + playlists).sortedBy { it.name.lowercase() },
+                ),
+            )
+        }
+        playlists
     }
 
     suspend fun addTrackToPlaylist(playlistId: String, trackId: String) = withContext(Dispatchers.IO) {
@@ -432,6 +478,7 @@ class LibraryStore(private val context: Context) {
         displayName: String,
         sourceUrl: String?,
         companionFiles: List<File>,
+        metadataOverride: DownloadedTrackImport? = null,
     ): Track {
         val id = UUID.randomUUID().toString()
         val fallbackExtension = sourceFile.extension.ifBlank { "mp3" }
@@ -441,7 +488,7 @@ class LibraryStore(private val context: Context) {
         return try {
             sourceFile.copyTo(targetAudio, overwrite = true)
             val metadata = metadataExtractor.fromFile(sourceFile, companionFiles)
-            artworkPath = metadata.artworkBytes?.let { bytes ->
+            artworkPath = (metadataOverride?.artworkBytes ?: metadata.artworkBytes)?.let { bytes ->
                 File(artworksDir, "$id.jpg").also { artworkFile ->
                     artworkFile.writeBytes(bytes)
                 }.absolutePath
@@ -449,9 +496,15 @@ class LibraryStore(private val context: Context) {
 
             Track(
                 id = id,
-                title = metadata.title?.takeIf { it.isNotBlank() } ?: displayName.substringBeforeLast('.'),
-                artist = metadata.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist",
-                album = metadata.album?.takeIf { it.isNotBlank() } ?: "Singles",
+                title = metadataOverride?.title?.takeIf { it.isNotBlank() }
+                    ?: metadata.title?.takeIf { it.isNotBlank() }
+                    ?: displayName.substringBeforeLast('.'),
+                artist = metadataOverride?.artist?.takeIf { it.isNotBlank() }
+                    ?: metadata.artist?.takeIf { it.isNotBlank() }
+                    ?: "Unknown Artist",
+                album = metadataOverride?.album?.takeIf { it.isNotBlank() }
+                    ?: metadata.album?.takeIf { it.isNotBlank() }
+                    ?: "Singles",
                 durationMs = metadata.durationMs,
                 localPath = targetAudio.absolutePath,
                 artworkPath = artworkPath,

@@ -88,6 +88,8 @@ internal fun LuxMusicRoot(
     onDownloadTitleChange: (String) -> Unit,
     onDownloadLink: (String, String, String?) -> Unit,
     onDownloadArchive: (String, String?) -> Unit,
+    onConnectYandex: () -> Unit,
+    onDisconnectYandex: () -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
@@ -407,6 +409,8 @@ internal fun LuxMusicRoot(
                         onDownloadArchive = { playlistName ->
                             onDownloadArchive(uiState.downloadUrl, playlistName)
                         },
+                        onConnectYandex = onConnectYandex,
+                        onDisconnectYandex = onDisconnectYandex,
                         uiState = uiState,
                     )
                 }

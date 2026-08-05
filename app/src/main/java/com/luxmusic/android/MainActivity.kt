@@ -1,8 +1,11 @@
 package com.luxmusic.android
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -17,11 +20,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luxmusic.android.ui.LuxMusicScreen
 import com.luxmusic.android.ui.theme.LuxMusicTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -36,6 +41,7 @@ class MainActivity : ComponentActivity() {
             LuxMusicTheme {
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
+                val uiScope = rememberCoroutineScope()
                 var pendingImportPlaylistName by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingTrackArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingPlaylistArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -87,6 +93,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                LaunchedEffect(Unit) {
+                    viewModel.authBrowserRequests.collect { request ->
+                        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
+                            ClipData.newPlainText("Код Яндекс Музыки", request.userCode),
+                        )
+                        runCatching {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(request.url)))
+                        }.onFailure {
+                            snackbarHostState.showSnackbar(
+                                "Код ${request.userCode} скопирован. Откройте ${request.url} в браузере.",
+                            )
+                        }
+                    }
+                }
+
                 LuxMusicScreen(
                     uiState = uiState.value,
                     snackbarHostState = snackbarHostState,
@@ -94,15 +115,24 @@ class MainActivity : ComponentActivity() {
                     onSearchChange = viewModel::updateSearch,
                     onImportClick = { playlistName ->
                         pendingImportPlaylistName = playlistName
-                        importLauncher.launch(
-                            arrayOf(
-                                "audio/*",
-                                "application/ogg",
-                                "application/zip",
-                                "application/x-zip-compressed",
-                                "application/octet-stream",
-                            ),
-                        )
+                        runCatching {
+                            importLauncher.launch(
+                                arrayOf(
+                                    "audio/*",
+                                    "application/ogg",
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/octet-stream",
+                                ),
+                            )
+                        }.onFailure { error ->
+                            pendingImportPlaylistName = null
+                            uiScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    error.message ?: "Не удалось открыть выбор ZIP или аудиофайлов.",
+                                )
+                            }
+                        }
                     },
                     onCreatePlaylist = viewModel::createPlaylist,
                     onAddTrackToPlaylist = viewModel::addTrackToPlaylist,
@@ -138,6 +168,8 @@ class MainActivity : ComponentActivity() {
                     onDownloadTitleChange = viewModel::updateDownloadTitle,
                     onDownloadLink = viewModel::downloadFromLink,
                     onDownloadArchive = viewModel::downloadArchiveFromLink,
+                    onConnectYandex = viewModel::connectYandexMusic,
+                    onDisconnectYandex = viewModel::disconnectYandexMusic,
                 )
             }
         }
