@@ -23,7 +23,9 @@ import kotlinx.coroutines.launch
 
 /** Keeps the short Yandex device authorization window alive while the browser is foreground. */
 class YandexAuthorizationService : Service() {
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val serviceScope by lazy {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + luxApp.messages.exceptionHandler)
+    }
     private var pollingJob: Job? = null
 
     private val luxApp: LuxMusicApp
@@ -55,17 +57,34 @@ class YandexAuthorizationService : Service() {
             return START_NOT_STICKY
         }
 
-        startAsForeground()
+        try {
+            startAsForeground()
+        } catch (error: Exception) {
+            luxApp.messages.report(error, "Не удалось запустить ожидание авторизации.")
+            finish(startId)
+            return START_NOT_STICKY
+        }
         if (pollingJob?.isActive != true) {
             pollingJob = serviceScope.launch {
-                luxApp.linkDownloader.completeYandexAuthorization()
-                finish(startId)
+                try {
+                    luxApp.linkDownloader.completeYandexAuthorization().onFailure {
+                        luxApp.messages.report(it, "Не удалось завершить авторизацию Яндекс Музыки.")
+                    }
+                } finally {
+                    finish(startId)
+                }
             }
         }
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        luxApp.messages.emit("Время ожидания авторизации истекло. Подключите Яндекс Музыку ещё раз.")
+        pollingJob?.cancel()
+        finish(startId)
+    }
 
     override fun onDestroy() {
         pollingJob?.cancel()
@@ -114,7 +133,7 @@ class YandexAuthorizationService : Service() {
 
     private fun finish(startId: Int) {
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelfResult(startId)
+        stopSelf()
     }
 
     companion object {

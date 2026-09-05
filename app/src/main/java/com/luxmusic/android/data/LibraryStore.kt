@@ -24,7 +24,10 @@ import java.io.IOException
 import java.util.UUID
 import java.util.zip.ZipInputStream
 
-class LibraryStore(private val context: Context) {
+class LibraryStore(
+    private val context: Context,
+    private val onWarning: (String) -> Unit = {},
+) {
     private val writeMutex = Mutex()
     private val metadataExtractor = MetadataExtractor(context)
 
@@ -33,6 +36,8 @@ class LibraryStore(private val context: Context) {
     private val artworksDir = File(storageRoot, "artworks").apply { mkdirs() }
     private val manifestFile = File(storageRoot, "library.json")
     private val manifestAtomicFile = AtomicFile(manifestFile)
+    private val backupAtomicFile = AtomicFile(File(storageRoot, "library.backup.json"))
+    private var manifestReadOnly = false
 
     private val mutableSnapshot = MutableStateFlow(loadSnapshot())
     val snapshot: StateFlow<LibrarySnapshot> = mutableSnapshot
@@ -570,20 +575,40 @@ class LibraryStore(private val context: Context) {
     }
 
     private fun loadSnapshot(): LibrarySnapshot {
-        if (!manifestAtomicFile.baseFile.exists()) return LibrarySnapshot()
+        // openRead also restores the legacy .bak left by an interrupted AtomicFile write.
+        val primaryExists = manifestFile.exists() || File(manifestFile.path + ".bak").exists()
+        val backupExists = backupAtomicFile.baseFile.exists() ||
+            File(backupAtomicFile.baseFile.path + ".bak").exists()
+        if (!primaryExists && !backupExists) return LibrarySnapshot()
 
-        return runCatching {
-            val json = manifestAtomicFile.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
-            val root = JSONObject(json)
-            LibrarySnapshot(
-                tracks = root.optJSONArray("tracks").toTracks(),
-                playlists = root.optJSONArray("playlists").toPlaylists(),
-                artistArtworkPaths = root.optJSONObject("artistArtworks").toStringMap(),
-            )
-        }.getOrDefault(LibrarySnapshot())
+        for (candidate in listOf(manifestAtomicFile, backupAtomicFile)) {
+            val decoded = runCatching {
+                val json = candidate.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+                LibrarySnapshotCodec.decode(json)
+            }.getOrNull() ?: continue
+            if (candidate === backupAtomicFile) {
+                // Preserve the unreadable original before allowing any edits to the recovered index.
+                val preserved = runCatching {
+                    if (manifestFile.isFile) {
+                        manifestFile.copyTo(File(storageRoot, "library.corrupt-${UUID.randomUUID()}.json"))
+                    }
+                }.isSuccess
+                manifestReadOnly = !preserved
+                onWarning("Каталог музыки восстановлен из резервной копии. Аудиофайлы сохранены.")
+            }
+            if (decoded.skippedRecords > 0) {
+                manifestReadOnly = true
+                onWarning("Часть каталога повреждена. Доступные треки можно слушать; запись отключена для сохранения данных.")
+            }
+            return decoded.snapshot
+        }
+        manifestReadOnly = true
+        onWarning("Не удалось прочитать каталог музыки. Файлы сохранены; запись отключена, чтобы не перезаписать библиотеку.")
+        return LibrarySnapshot()
     }
 
     private fun persist(snapshot: LibrarySnapshot) {
+        check(!manifestReadOnly) { "Каталог музыки повреждён. Изменения не сохранены, чтобы защитить существующую библиотеку." }
         val root = JSONObject()
             .put("tracks", JSONArray().apply { snapshot.tracks.forEach { put(it.toJson()) } })
             .put("playlists", JSONArray().apply { snapshot.playlists.forEach { put(it.toJson()) } })
@@ -600,6 +625,15 @@ class LibraryStore(private val context: Context) {
             throw error
         }
         mutableSnapshot.value = snapshot
+        var backupOutput: FileOutputStream? = null
+        try {
+            backupOutput = backupAtomicFile.startWrite()
+            backupOutput.write(bytes)
+            backupAtomicFile.finishWrite(backupOutput)
+        } catch (_: Exception) {
+            runCatching { backupOutput?.let(backupAtomicFile::failWrite) }
+            onWarning("Библиотека сохранена, но не удалось обновить резервную копию каталога.")
+        }
     }
 
     private fun queryDisplayName(uri: Uri): String? {
@@ -646,45 +680,6 @@ class LibraryStore(private val context: Context) {
             mimeType.equals("application/x-zip-compressed", ignoreCase = true)
     }
 
-    private fun JSONArray?.toTracks(): List<Track> {
-        if (this == null) return emptyList()
-
-        return List(length()) { index ->
-            getJSONObject(index).toTrack()
-        }
-    }
-
-    private fun JSONArray?.toPlaylists(): List<Playlist> {
-        if (this == null) return emptyList()
-
-        return List(length()) { index ->
-            getJSONObject(index).toPlaylist()
-        }
-    }
-
-    private fun JSONObject.toTrack(): Track = Track(
-        id = getString("id"),
-        title = getString("title"),
-        artist = getString("artist"),
-        album = getString("album"),
-        durationMs = getLong("durationMs"),
-        localPath = getString("localPath"),
-        artworkPath = optStringOrNull("artworkPath"),
-        lyrics = optStringOrNull("lyrics"),
-        sourceUrl = optStringOrNull("sourceUrl"),
-        importedAt = getLong("importedAt"),
-    )
-
-    private fun JSONObject.toPlaylist(): Playlist = Playlist(
-        id = getString("id"),
-        name = getString("name"),
-        trackIds = optJSONArray("trackIds")?.let { array ->
-            List(array.length()) { index -> array.getString(index) }
-        }.orEmpty(),
-        createdAt = getLong("createdAt"),
-        artworkPath = optStringOrNull("artworkPath"),
-    )
-
     private fun Track.toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("title", title)
@@ -703,11 +698,6 @@ class LibraryStore(private val context: Context) {
         .put("trackIds", JSONArray().apply { trackIds.forEach(::put) })
         .put("createdAt", createdAt)
         .putOpt("artworkPath", artworkPath)
-
-    private fun JSONObject?.toStringMap(): Map<String, String> {
-        if (this == null) return emptyMap()
-        return keys().asSequence().associateWith { key -> getString(key) }
-    }
 
     private fun storeArtwork(uri: Uri, prefix: String): String? {
         val temporaryFile = File(artworksDir, "incoming-${UUID.randomUUID()}")
@@ -797,10 +787,6 @@ class LibraryStore(private val context: Context) {
         if (!previousPath.isNullOrBlank() && previousPath != newPath) {
             runCatching { File(previousPath).delete() }
         }
-    }
-
-    private fun JSONObject.optStringOrNull(name: String): String? {
-        return if (has(name) && !isNull(name)) getString(name) else null
     }
 
     private companion object {

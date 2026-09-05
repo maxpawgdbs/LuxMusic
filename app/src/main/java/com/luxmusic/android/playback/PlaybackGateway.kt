@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.luxmusic.android.data.PlaybackState
+import com.luxmusic.android.AppMessages
 import com.luxmusic.android.data.Track
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,19 +14,18 @@ import kotlinx.coroutines.flow.asStateFlow
  * UI-side command gateway. It deliberately owns no Player or MediaSession; both live exclusively
  * inside [PlaybackSessionService].
  */
-class PlaybackGateway(context: Context) {
+class PlaybackGateway(context: Context, private val messages: AppMessages = AppMessages()) {
     private val appContext = context.applicationContext
     private val mutableState = MutableStateFlow(PlaybackState())
 
     val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
 
     fun restorePlayback() {
-        if (!PlaybackController.hasPersistedQueue(appContext)) return
-
-        send(
-            action = PlaybackSessionService.ACTION_RESTORE,
-            foreground = true,
-        )
+        messages.attempt("Не удалось восстановить воспроизведение.") {
+            if (PlaybackController.hasPersistedQueue(appContext)) {
+                send(action = PlaybackSessionService.ACTION_RESTORE, foreground = true)
+            }
+        }
     }
 
     fun playCollection(
@@ -102,10 +102,12 @@ class PlaybackGateway(context: Context) {
         val intent = Intent(appContext, PlaybackSessionService::class.java)
             .setAction(action)
             .apply(extras)
-        if (foreground) {
-            ContextCompat.startForegroundService(appContext, intent)
-        } else {
-            appContext.startService(intent)
+        messages.attempt("Не удалось запустить плеер. Откройте приложение и повторите действие.") {
+            if (foreground) {
+                ContextCompat.startForegroundService(appContext, intent)
+            } else {
+                appContext.startService(intent)
+            }
         }
     }
 

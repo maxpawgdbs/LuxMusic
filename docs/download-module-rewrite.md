@@ -1,44 +1,47 @@
-# Download Module Rewrite
+# Download module
 
-## Why the module was rewritten
+LuxMusic runs directly on Android without a server or Docker. The pipeline separates URL parsing, metadata lookup, execution, native extraction and durable library import.
 
-The old `LinkDownloader` mixed together:
+## YouTube and TikTok
 
-- service detection
-- cookies and session handling
-- metadata extraction
-- direct extractor calls
-- fallback search logic
-- file validation and import
+The reference implementation is [nekotyy/tiktok-bot](https://github.com/nekotyy/tiktok-bot/blob/14e286cfceaaecaeba5142b796062e97ceffa69e/bot/services/downloader.py). Its relevant ideas are yt-dlp with a JavaScript runtime, explicit stream selection and FFmpeg processing, bounded retries, and a public TikWM fallback for TikTok. LuxMusic adapts these to audio on Android; gallery-dl and Telegram video delivery are not needed.
 
-The new implementation splits those responsibilities into:
+- `YtDlpMediaDownloadBackend` uses `io.github.deniscerri.youtubedl-android:library:0.19.0`, which packages QuickJS (`libqjs.so`) and passes its path to yt-dlp. FFmpeg is initialized before audio extraction.
+- The compatible yt-dlp 2026.08.19 executable, including EJS, is bundled in the APK and checked by SHA-256. See [bundle provenance and update instructions](bundled-extractor.md). First use does not depend on a successful runtime update; newer installed nightly extractors are preserved.
+- Audio streams are preferred; a combined video/audio stream is accepted and its audio is extracted. Video-only streams are excluded. Partial files are not imported; validation inspects the actual audio stream instead of trusting sidecar duration.
+- Failed extraction can refresh nightly yt-dlp once and retry. The native updater has a 15-second socket timeout and a 45-second overall deadline; the wrapper's unbounded HTTP updater is not used. Cancellation and library-write failures do not trigger extractor refreshes or redownloads.
+- `TikTokFallbackBackend` queries the same public TikWM endpoint as the reference after extraction retries fail. It extracts clip audio, or a photo post's music, preserves title/artist, and stores the original TikTok source link. No credentials are sent. TikWM is a third-party availability dependency.
+- YouTube downloads are anonymous. The cookie UI and account store were removed; old account preferences are unused. Restricted content yields an on-screen error.
 
-- `DownloadPlanner`
-- `CompositeDownloadMetadataResolver`
-- `LinkDownloadExecutor`
-- `YtDlpMediaDownloadBackend`
-- thin Android adapter `LinkDownloader`
+## Other sources
 
-This makes the workflow testable on the JVM without Android runtime dependencies.
+Yandex Music keeps the native authenticated pipeline for tracks, albums and artists. Tracks are imported in small batches so discographies do not retain all artwork in memory. SoundCloud and generic sites use yt-dlp; Spotify, Apple Music and VK metadata can be matched to YouTube. ZIP archives retain bounded streaming extraction and their existing import paths.
 
-## Platform strategy
+## Storage and errors
 
-- `YouTube`: direct extractor download via `yt-dlp`
-- `TikTok`: direct extractor download via `yt-dlp`
-- `SoundCloud`: direct extractor download via `yt-dlp`
-- other `http(s)` links: direct generic extraction through `yt-dlp`
-- `Spotify`, `Apple Music`, `Яндекс Музыка`, and `VK Музыка`: metadata lookup followed by a YouTube match (duration-checked when the source exposes duration)
+The package, signing key, track IDs, playlist IDs, JSON fields and `files/luxmusic` paths remain in place. Atomic writes update the primary manifest and a separate backup. A recovered corrupt original is retained. Partly readable or unrecoverable manifests are protected against writes, avoiding silent replacement with an empty collection.
 
-## Libraries and APIs used
+`AppMessages` queues operation failures for the screen's snackbar. Coroutine cancellation propagates. Playback errors and failures to launch Android activities/services are handled at their operation boundaries; the application does not try to resume an arbitrarily damaged process through a global uncaught-exception handler.
 
-- `io.github.junkfood02.youtubedl-android`
-  Android wrapper around `yt-dlp`, used for direct extractor downloads and extractor info probing.
-- HTML/OpenGraph metadata fallback
-  Used as a last-resort metadata hint when extractor probing does not return enough information.
+## Verification without Docker
 
-## Notes
+Use JDK 21 and Android SDK 36:
 
-- Direct downloads use audio-only formats and skip an extractor update on the successful fast path.
-- Extractors update to the latest nightly build only after a failed request, then retry once.
-- A YouTube session can still be attached to reduce `429` and similar rate-limit failures.
-- The test suite now verifies only the supported direct-download platforms plus explicit rejection of unsupported links.
+```sh
+./gradlew testDebugUnitTest lintRelease assembleRelease
+./gradlew -Pluxmusic.emulator=true connectedDebugAndroidTest
+```
+
+`offlineUnitTest` remains an alias for `testDebugUnitTest`. Dependencies must be cached before using Gradle `--offline`. Emulator mode adds x86_64 for local tests; release APKs normally include ARM64 and ARMv7 only. On Windows use an ASCII checkout and Gradle cache path if Java cannot load `GradleWorkerMain` from a path containing non-ASCII characters.
+
+### Updating an actual release APK
+
+Use an **empty disposable test installation only**, capable of running the release APK's ARM libraries. Never uninstall a real user's application to run this check. `UpgradeFixtureInstrumentation` refuses to seed an existing catalog or audio directory.
+
+Build its test APK with `./gradlew -Pluxmusic.emulator=true -Pluxmusic.upgradeTest=true assembleDebugAndroidTest`. This selects a Java/platform-API runner, because the normal AndroidX test runner depends on Kotlin classes that R8 renames in production APKs.
+
+1. Install the previous official release and the generated `app-debug-androidTest.apk`.
+2. Run `adb shell am instrument -w -e upgradePhase seed com.luxmusic.android.test/com.luxmusic.android.data.UpgradeFixtureInstrumentation`.
+3. Install the new signed release with `adb install -r new-release.apk`, without uninstalling or clearing data.
+4. Run the same instrumentation command with `-e upgradePhase verify`. It checks exact audio bytes, the original path and ID, track metadata and playlist membership.
+5. Open the application and check that the track and playlist appear. Rebuild without `luxmusic.upgradeTest` for the regular AndroidX regression suite.

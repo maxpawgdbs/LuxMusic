@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -6,9 +8,10 @@ plugins {
 val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
 val bundledSigningStorePassword = "luxmusic"
 val bundledSigningKeyAlias = "luxmusic-dev"
-val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.6.2"
-val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 6_002_000
+val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.7"
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 7_000_000
 val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: baseVersionName
+val emulatorBuild = providers.gradleProperty("luxmusic.emulator").orNull == "true"
 
 android {
     namespace = "com.luxmusic.android"
@@ -20,7 +23,9 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = if (providers.gradleProperty("luxmusic.upgradeTest").orNull == "true")
+            "com.luxmusic.android.data.UpgradeFixtureInstrumentation"
+        else "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
     }
@@ -61,10 +66,9 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            excludes += setOf(
-                "lib/x86/**",
-                "lib/x86_64/**",
-            )
+            if (!emulatorBuild) {
+                excludes += setOf("lib/x86/**", "lib/x86_64/**")
+            }
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -76,6 +80,7 @@ android {
             isEnable = true
             reset()
             include("armeabi-v7a", "arm64-v8a")
+            if (emulatorBuild) include("x86_64")
             isUniversalApk = true
         }
     }
@@ -88,7 +93,7 @@ dependencies {
     val lifecycle = "2.10.0"
     val media3 = "1.10.0"
     val coroutines = "1.10.2"
-    val youtubedlAndroid = "0.18.1"
+    val youtubedlAndroid = "0.19.0"
 
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.activity:activity-compose:$activityCompose")
@@ -111,69 +116,43 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
 
     // GPL-licensed downloader dependency. Keep it for prototyping, swap it out if you need a proprietary release.
-    implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
-    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid")
+    // Includes QuickJS on Android: required by current yt-dlp for YouTube extraction.
+    implementation("io.github.deniscerri.youtubedl-android:library:$youtubedlAndroid")
+    implementation("io.github.deniscerri.youtubedl-android:ffmpeg:$youtubedlAndroid")
 
     debugImplementation("androidx.compose.ui:ui-tooling:$composeUi")
     debugImplementation("androidx.compose.ui:ui-test-manifest:$composeUi")
 
     testImplementation(files("libs/junit4.jar"))
+    testImplementation("org.json:json:20250517")
     testRuntimeOnly(files("libs/junit4.jar"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
+    androidTestImplementation("androidx.test:rules:1.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:$composeUi")
 }
 
-tasks.register<JavaExec>("offlineUnitTest") {
+// Backward-compatible task name; Gradle discovers all tests and writes standard XML reports.
+tasks.register("offlineUnitTest") {
     group = "verification"
-    description = "Runs JVM unit tests with the bundled offline JUnit runtime."
-    dependsOn(
-        "compileDebugKotlin",
-        "compileDebugJavaWithJavac",
-        "compileDebugUnitTestKotlin",
-        "compileDebugUnitTestJavaWithJavac",
-        "processDebugJavaRes",
-        "processDebugUnitTestJavaRes",
-    )
-
-    mainClass.set("org.junit.runner.JUnitCore")
-    val buildOutputDir = layout.buildDirectory.get().asFile
-    classpath = files(
-        file("libs/junit4.jar"),
-        buildOutputDir.resolve("intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes"),
-        buildOutputDir.resolve("intermediates/built_in_kotlinc/debugUnitTest/compileDebugUnitTestKotlin/classes"),
-        buildOutputDir.resolve("intermediates/javac/debug/compileDebugJavaWithJavac/classes"),
-        buildOutputDir.resolve("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes"),
-        configurations.getByName("debugUnitTestRuntimeClasspath"),
-    )
-    args(
-        "com.luxmusic.android.download.DownloadParsingTest",
-        "com.luxmusic.android.download.DownloadPlannerTest",
-        "com.luxmusic.android.download.DownloadMetadataResolverTest",
-        "com.luxmusic.android.download.LinkDownloadExecutorTest",
-        "com.luxmusic.android.download.DownloadRuntimePolicyTest",
-        "com.luxmusic.android.download.RemoteDownloadClassifierTest",
-        "com.luxmusic.android.download.DownloadFailureTextTest",
-        "com.luxmusic.android.download.YtDlpMediaDownloadBackendTest",
-        "com.luxmusic.android.download.yandex.YandexMusicUrlParserTest",
-        "com.luxmusic.android.download.yandex.YandexCatalogResolverTest",
-        "com.luxmusic.android.download.yandex.YandexDownloadPolicyTest",
-        "com.luxmusic.android.data.ImportFileRulesTest",
-        "com.luxmusic.android.data.ArtistCollectionsTest",
-        "com.luxmusic.android.playback.PlaybackArtworkTest",
-        "com.luxmusic.android.playback.PlaybackModePolicyTest",
-        "com.luxmusic.android.playback.PlaybackTaskPolicyTest",
-    )
+    description = "Runs all JVM regression tests without Docker or an Android device."
+    dependsOn("testDebugUnitTest")
 }
 
-tasks.matching { it.name == "testDebugUnitTest" }.configureEach {
-    enabled = false
+val verifyBundledExtractor = tasks.register("verifyBundledExtractor") {
+    group = "verification"
+    val extractor = file("src/main/assets/yt-dlp")
+    inputs.file(extractor)
+    doLast {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(extractor.readBytes()).joinToString("") { "%02x".format(it) }
+        check(digest == "1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6") {
+            "Bundled yt-dlp checksum mismatch. See docs/bundled-extractor.md."
+        }
+    }
 }
-
-tasks.matching { it.name == "test" || it.name == "check" }.configureEach {
-    dependsOn("offlineUnitTest")
-}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(verifyBundledExtractor) }
 
 val verifyReleaseRuntimeKeepRules = tasks.register("verifyReleaseRuntimeKeepRules") {
     group = "verification"

@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
 import com.luxmusic.android.data.ArtistCollections
-import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -91,9 +90,6 @@ internal fun LuxMusicRoot(
     onDownloadLink: (String, String, String?) -> Unit,
     onConnectYandex: () -> Unit,
     onDisconnectYandex: () -> Unit,
-    onCaptureDownloadAccount: (DownloadService, String?) -> Unit,
-    onImportDownloadCookies: (DownloadService) -> Unit,
-    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
     val tracksById = remember(uiState.library) { uiState.library.associateBy { it.id } }
     val queueTracks = remember(uiState.library, uiState.playback.queueTrackIds) {
@@ -118,7 +114,6 @@ internal fun LuxMusicRoot(
     var deleteTargetTrack by remember { mutableStateOf<Track?>(null) }
     var deleteTargetPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var removeFromPlaylistTarget by remember { mutableStateOf<Pair<Playlist, Track>?>(null) }
-    var accountLoginService by remember { mutableStateOf<DownloadService?>(null) }
 
     val openedPlaylist = remember(uiState.playlists, openedPlaylistId) {
         uiState.playlists.firstOrNull { it.id == openedPlaylistId }
@@ -422,27 +417,11 @@ internal fun LuxMusicRoot(
                         uiState = uiState,
                         onConnectYandex = onConnectYandex,
                         onDisconnectYandex = onDisconnectYandex,
-                        onOpenDownloadAccount = { service ->
-                            accountLoginService = service
-                        },
-                        onImportDownloadCookies = onImportDownloadCookies,
-                        onClearDownloadAccount = onClearDownloadAccount,
                     )
                 }
             }
         }
         }
-    }
-
-    accountLoginService?.let { service ->
-        DownloadAccountLoginDialog(
-            service = service,
-            onDismiss = { accountLoginService = null },
-            onComplete = { userAgent ->
-                onCaptureDownloadAccount(service, userAgent)
-                accountLoginService = null
-            },
-        )
     }
 
     if (showImportDialog) {

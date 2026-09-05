@@ -61,7 +61,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.data.ArtistCollections
-import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
@@ -944,12 +943,7 @@ internal fun LuxSettingsPage(
     uiState: LuxMusicUiState,
     onConnectYandex: () -> Unit,
     onDisconnectYandex: () -> Unit,
-    onOpenDownloadAccount: (DownloadService) -> Unit,
-    onImportDownloadCookies: (DownloadService) -> Unit,
-    onClearDownloadAccount: (DownloadService) -> Unit,
 ) {
-    val youtubeAccount = uiState.downloadAccounts
-        .firstOrNull { it.service == DownloadService.YOUTUBE }
 
     LazyColumn(
         contentPadding = pagePadding(contentPadding),
@@ -1017,60 +1011,6 @@ internal fun LuxSettingsPage(
                                     "Подключить Яндекс Музыку"
                                 },
                             )
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = luxCardColors()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (youtubeAccount?.isConnected == true) {
-                            Icon(
-                                Icons.Rounded.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("YouTube", style = MaterialTheme.typography.titleLarge)
-                            Text(
-                                if (youtubeAccount?.isConnected == true) "Аккаунт подключён" else "Без аккаунта",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (youtubeAccount?.isConnected == true) {
-                            TextButton(onClick = { onClearDownloadAccount(DownloadService.YOUTUBE) }) {
-                                Text("Отключить")
-                            }
-                        }
-                    }
-                    Text(
-                        "Вход помогает при возрастных ограничениях и ответах YouTube 429.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (youtubeAccount?.isConnected != true) {
-                        Button(
-                            onClick = { onOpenDownloadAccount(DownloadService.YOUTUBE) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Войти в YouTube")
-                        }
-                        OutlinedButton(
-                            onClick = { onImportDownloadCookies(DownloadService.YOUTUBE) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Импортировать cookies.txt")
                         }
                     }
                 }

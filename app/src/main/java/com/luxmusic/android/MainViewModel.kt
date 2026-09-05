@@ -4,8 +4,6 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.luxmusic.android.data.DownloadAccountState
-import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.DownloadState
 import com.luxmusic.android.data.PlaybackState
 import com.luxmusic.android.data.Playlist
@@ -16,11 +14,11 @@ import com.luxmusic.android.download.DownloadCollectionResult
 import com.luxmusic.android.download.yandex.YandexAuthState
 import com.luxmusic.android.download.yandex.YandexAuthorizationService
 import com.luxmusic.android.download.yandex.YandexSourceKind
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -39,7 +37,6 @@ data class LuxMusicUiState(
     val visibleTracks: List<Track> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
     val artistArtworkPaths: Map<String, String> = emptyMap(),
-    val downloadAccounts: List<DownloadAccountState> = emptyList(),
     val selectedTab: LuxTab = LuxTab.HOME,
     val searchQuery: String = "",
     val downloadUrl: String = "",
@@ -59,30 +56,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val luxApp = application as LuxMusicApp
     private val libraryStore = luxApp.libraryStore
     private val playbackGateway = luxApp.playbackGateway
-    private val downloadAccountStore = luxApp.downloadAccountStore
     private val linkDownloader = luxApp.linkDownloader
 
     private val searchQuery = MutableStateFlow("")
     private val downloadUrl = MutableStateFlow("")
     private val downloadTitle = MutableStateFlow("")
     private val selectedTab = MutableStateFlow(LuxTab.HOME)
-    private val messagesFlow = MutableSharedFlow<String>()
-    private val authBrowserRequestsFlow = MutableSharedFlow<YandexAuthBrowserRequest>()
+    private val messagesFlow = luxApp.messages
+    private val authBrowserRequestsFlow = Channel<YandexAuthBrowserRequest>(Channel.BUFFERED)
 
-    val messages = messagesFlow.asSharedFlow()
-    val authBrowserRequests = authBrowserRequestsFlow.asSharedFlow()
+    val messages = messagesFlow.events
+    val authBrowserRequests = authBrowserRequestsFlow.receiveAsFlow()
 
     val uiState: StateFlow<LuxMusicUiState> = combine(
         libraryStore.snapshot,
         playbackGateway.state,
-        downloadAccountStore.accounts,
         linkDownloader.state,
         searchQuery,
-    ) { library, playback, downloadAccounts, download, query ->
+    ) { library, playback, download, query ->
         CombinedUiInputs(
             library = library,
             playback = playback,
-            downloadAccounts = downloadAccounts,
             download = download,
             query = query,
         )
@@ -102,7 +96,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             visibleTracks = visibleTracks,
             playlists = inputs.library.playlists,
             artistArtworkPaths = inputs.library.artistArtworkPaths,
-            downloadAccounts = inputs.downloadAccounts,
             selectedTab = tab,
             searchQuery = inputs.query,
             playback = inputs.playback,
@@ -148,12 +141,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restorePlayback() = playbackGateway.restorePlayback()
 
+    fun reportActivityFailure(action: () -> Unit) {
+        messagesFlow.attempt("Не удалось открыть системное окно выбора. Проверьте доступные приложения.", action)
+    }
+
     fun importAudio(uris: List<Uri>, playlistName: String? = null) {
         if (uris.isEmpty()) return
 
-        viewModelScope.launch {
-            val imported = runCatching { libraryStore.importUris(uris) }.getOrElse { error ->
-                messagesFlow.emit(error.message ?: "Не удалось импортировать выбранные файлы.")
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
+            val imported = runCatchingCancellable { libraryStore.importUris(uris) }.getOrElse { error ->
+                messagesFlow.report(error, "Не удалось импортировать выбранные файлы.")
                 return@launch
             }
             val normalizedPlaylistName = playlistName?.trim().orEmpty()
@@ -187,7 +184,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalized = name.trim()
         if (normalized.isBlank()) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             libraryStore.createPlaylist(normalized)
             selectedTab.value = LuxTab.PLAYLISTS
             messagesFlow.emit("Плейлист \"$normalized\" создан.")
@@ -195,7 +192,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addTrackToPlaylist(playlistId: String, trackId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             libraryStore.addTrackToPlaylist(playlistId, trackId)
             val playlistName = libraryStore.snapshot.value.playlists.firstOrNull { it.id == playlistId }?.name
             messagesFlow.emit(
@@ -209,7 +206,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             libraryStore.removeTrackFromPlaylist(playlistId, trackId)
             messagesFlow.emit("Трек удалён из плейлиста.")
         }
@@ -219,7 +216,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalized = name.trim()
         if (normalized.isBlank()) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             val previousName = libraryStore.snapshot.value.playlists
                 .firstOrNull { it.id == playlistId }
                 ?.name
@@ -232,7 +229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deletePlaylist(playlistId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             val removed = libraryStore.deletePlaylist(playlistId)
             if (removed != null) {
                 playbackGateway.clearActivePlaylist(playlistId)
@@ -248,7 +245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteTrack(trackId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             playbackGateway.removeTrack(trackId)
             val removed = libraryStore.deleteTrack(trackId)
             messagesFlow.emit(
@@ -266,7 +263,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalizedArtist = artist.trim()
         if (normalizedTitle.isBlank() || normalizedArtist.isBlank()) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             libraryStore.updateTrackDetails(trackId, normalizedTitle, normalizedArtist)?.let { updated ->
                 playbackGateway.updateTrack(updated.id)
             }
@@ -274,7 +271,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateTrackArtwork(trackId: String, uri: Uri) {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             val updated = libraryStore.updateTrackArtwork(trackId, uri)
             if (updated != null) {
                 playbackGateway.updateTrack(updated.id)
@@ -286,7 +283,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updatePlaylistArtwork(playlistId: String, uri: Uri) {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             val updated = libraryStore.updatePlaylistArtwork(playlistId, uri)
             messagesFlow.emit(
                 if (updated != null) "Обложка плейлиста обновлена."
@@ -296,7 +293,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateArtistArtwork(artist: String, uri: Uri) {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             val updated = libraryStore.updateArtistArtwork(artist, uri)
             messagesFlow.emit(
                 if (updated != null) "Изображение артиста обновлено."
@@ -357,9 +354,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectQueueTrack(trackId: String) = playbackGateway.selectQueueTrack(trackId)
 
     fun connectYandexMusic() {
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             linkDownloader.beginYandexAuthorization().onSuccess { code ->
-                authBrowserRequestsFlow.emit(
+                authBrowserRequestsFlow.send(
                     YandexAuthBrowserRequest(
                         url = code.verificationUrl,
                         userCode = code.userCode,
@@ -371,7 +368,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }.onFailure { error ->
-                messagesFlow.emit(error.message ?: "Не удалось подключить Яндекс Музыку.")
+                messagesFlow.report(error, "Не удалось подключить Яндекс Музыку.")
             }
         }
     }
@@ -379,16 +376,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resumeYandexMusicAuthorization() {
         if (!linkDownloader.hasPendingYandexAuthorization()) return
         YandexAuthorizationService.start(getApplication()).onFailure { error ->
-            viewModelScope.launch {
+            viewModelScope.launch(messagesFlow.exceptionHandler) {
                 messagesFlow.emit(error.message ?: "Не удалось продолжить авторизацию Яндекс Музыки.")
             }
         }
     }
 
     fun disconnectYandexMusic() {
-        YandexAuthorizationService.stop(getApplication())
-        linkDownloader.disconnectYandex()
-        viewModelScope.launch { messagesFlow.emit("Аккаунт Яндекс Музыки отключён.") }
+        messagesFlow.attempt("Не удалось отключить Яндекс Музыку.") {
+            YandexAuthorizationService.stop(getApplication())
+            linkDownloader.disconnectYandex()
+            messagesFlow.emit("Аккаунт Яндекс Музыки отключён.")
+        }
     }
 
     fun downloadFromLink(url: String, title: String, playlistName: String? = null) {
@@ -397,17 +396,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalizedPlaylistName = playlistName?.trim().orEmpty()
         if (normalized.isBlank()) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             val result = linkDownloader.downloadCollection(normalized).getOrElse { error ->
-                messagesFlow.emit(error.message ?: "Не удалось скачать музыку по ссылке.")
+                messagesFlow.emit(linkDownloader.state.value.errorMessage ?: com.luxmusic.android.download.DownloadFailureText.from(error, "Не удалось скачать музыку по ссылке."))
                 return@launch
             }
             val imported = result.tracks
             if (customTitle.isNotBlank()) {
                 imported.takeIf { it.size == 1 }?.forEach { track ->
-                    runCatching {
+                    runCatchingCancellable {
                         libraryStore.updateTrackDetails(track.id, customTitle, track.artist)
-                    }
+                    }.onFailure { messagesFlow.report(it, "Трек сохранён, но название изменить не удалось.") }
                 }
             }
             val playlistsCreated = createPlaylistsForDownload(
@@ -443,9 +442,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalizedPlaylistName = playlistName?.trim().orEmpty()
         if (normalized.isBlank()) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(messagesFlow.exceptionHandler) {
             val imported = linkDownloader.downloadArchive(normalized).getOrElse { error ->
-                messagesFlow.emit(error.message ?: "Не удалось скачать ZIP-архив.")
+                messagesFlow.report(error, "Не удалось скачать ZIP-архив.")
                 return@launch
             }
             val playlistCreated = normalizedPlaylistName.isNotEmpty() &&
@@ -470,12 +469,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         playlistName: String,
         tracks: List<Track>,
     ): Boolean {
-        return runCatching {
+        return runCatchingCancellable {
             libraryStore.createPlaylist(
                 name = playlistName,
                 trackIds = tracks.map(Track::id),
             )
-        }.isSuccess
+        }.onFailure { messagesFlow.report(it, "Не удалось создать плейлист. Треки сохранены в библиотеке.") }.isSuccess
     }
 
     private suspend fun createPlaylistsForDownload(
@@ -503,44 +502,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         if (drafts.isEmpty()) return 0
-        return runCatching { libraryStore.createPlaylists(drafts) }.getOrDefault(emptyList()).size
-    }
-
-    fun importDownloadAccountCookies(service: DownloadService, uri: Uri?) {
-        if (uri == null) return
-
-        viewModelScope.launch {
-            val result = downloadAccountStore.importCookies(service, uri)
-            result.onSuccess {
-                messagesFlow.emit("Аккаунт ${service.title} подключен через cookies.txt.")
-            }.onFailure { error ->
-                messagesFlow.emit(error.message ?: "Не удалось импортировать cookies.txt для ${service.title}.")
-            }
-        }
-    }
-
-    fun captureDownloadAccountCookies(service: DownloadService, userAgent: String?) {
-        viewModelScope.launch {
-            val result = downloadAccountStore.captureCookiesFromWebView(service, userAgent)
-            result.onSuccess {
-                messagesFlow.emit("Аккаунт ${service.title} подключен.")
-            }.onFailure { error ->
-                messagesFlow.emit(error.message ?: "Не удалось завершить вход для ${service.title}.")
-            }
-        }
-    }
-
-    fun clearDownloadAccount(service: DownloadService) {
-        viewModelScope.launch {
-            downloadAccountStore.clearSession(service)
-            messagesFlow.emit("Сессия ${service.title} отключена.")
-        }
+        return runCatchingCancellable { libraryStore.createPlaylists(drafts) }
+            .onFailure { messagesFlow.report(it, "Не удалось создать плейлисты. Треки сохранены в библиотеке.") }
+            .getOrDefault(emptyList()).size
     }
 
     private data class CombinedUiInputs(
         val library: com.luxmusic.android.data.LibrarySnapshot,
         val playback: PlaybackState,
-        val downloadAccounts: List<DownloadAccountState>,
         val download: DownloadState,
         val query: String,
     )

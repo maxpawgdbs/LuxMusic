@@ -13,7 +13,10 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,12 +60,16 @@ internal fun DecorativeBackground() {
 
 @Composable
 internal fun ArtworkThumb(artworkPath: String?, modifier: Modifier = Modifier) {
-    val bitmap = remember(artworkPath) { artworkPath?.let(::loadBitmapFromPath) }
+    val bitmap by produceState<ImageBitmap?>(null, artworkPath) {
+        value = null
+        value = withContext(Dispatchers.IO) { artworkPath?.let(::loadBitmapFromPath) }
+    }
     val shape = MaterialTheme.shapes.large
 
-    if (bitmap != null) {
+    val loadedBitmap = bitmap
+    if (loadedBitmap != null) {
         Image(
-            bitmap = bitmap,
+            bitmap = loadedBitmap,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = modifier
@@ -103,5 +110,12 @@ internal fun formatDuration(durationMs: Long): String {
 }
 
 private fun loadBitmapFromPath(path: String): ImageBitmap? {
-    return runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
+    return runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > 768) sampleSize *= 2
+        BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sampleSize })?.asImageBitmap()
+    }.getOrNull()
 }

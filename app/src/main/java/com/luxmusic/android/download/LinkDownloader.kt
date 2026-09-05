@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
@@ -37,7 +39,6 @@ data class DownloadCollectionResult(
 class LinkDownloader(
     private val context: Context,
     private val libraryStore: LibraryStore,
-    private val accountStore: DownloadAccountStore,
 ) {
     private val mutableState = MutableStateFlow(DownloadState())
     val state: StateFlow<DownloadState> = mutableState.asStateFlow()
@@ -56,6 +57,7 @@ class LinkDownloader(
         importer = LibraryStoreImporter(libraryStore),
         audioInspector = MetadataAudioInspector(MetadataExtractor(context)),
         workspaceManager = CacheWorkspaceManager(context.cacheDir),
+        tiktokFallback = TikTokFallbackBackend(UrlConnectionMetadataHttpClient(), backend),
     )
     private val operationGuard = DownloadOperationGuard()
 
@@ -114,6 +116,7 @@ class LinkDownloader(
             }
             downloadGeneric(normalizedUrl).map { tracks -> DownloadCollectionResult(tracks = tracks) }
         } finally {
+            mutableState.value = mutableState.value.copy(isRunning = false)
             operationGuard.release()
         }
     }
@@ -181,7 +184,7 @@ class LinkDownloader(
         if (!initialized) initialize()
         if (!initialized) {
             return@withContext Result.failure(
-                IllegalStateException("Загрузчик не инициализирован. Проверьте модуль yt-dlp и переустановите APK."),
+                IllegalStateException("Не удалось запустить загрузчик. Проверьте свободное место и повторите попытку."),
             )
         }
 
@@ -197,7 +200,7 @@ class LinkDownloader(
         try {
             val result = executor.execute(
                 sourceUrl = normalizedUrl,
-                sessionProvider = { service -> accountStore.sessionFor(service)?.toDownloadSession() },
+                sessionProvider = { null },
             ) { progress, message ->
                 mutableState.value = mutableState.value.copy(
                     isRunning = true,
@@ -227,7 +230,6 @@ class LinkDownloader(
                 errorMessage = humanizeError(
                     service = sourceService,
                     error = error,
-                    hasSession = accountStore.sessionFor(sourceService) != null,
                 ),
                 isAvailable = true,
             )
@@ -243,6 +245,7 @@ class LinkDownloader(
         try {
             downloadArchiveExclusive(url)
         } finally {
+            mutableState.value = mutableState.value.copy(isRunning = false)
             operationGuard.release()
         }
     }
@@ -311,6 +314,7 @@ class LinkDownloader(
                 temporaryArchive.outputStream().buffered().use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     while (true) {
+                        currentCoroutineContext().ensureActive()
                         val read = input.read(buffer)
                         if (read < 0) break
                         downloadedBytes += read
@@ -453,55 +457,8 @@ class LinkDownloader(
         }
     }
 
-    private fun humanizeError(
-        service: DownloadService,
-        error: Throwable,
-        hasSession: Boolean,
-    ): String {
-        val rawMessage = DownloadFailureText.from(error, serviceFailureHint(service))
-
-        return when {
-            service == DownloadService.YOUTUBE &&
-                (rawMessage.contains("429") || rawMessage.contains("Too Many Requests", ignoreCase = true)) -> {
-                if (hasSession) {
-                    "YouTube вернул 429 даже с подключенной сессией. Подождите немного и повторите попытку позже."
-                } else {
-                    "YouTube вернул 429. Откройте вход для YouTube во вкладке загрузки и повторите попытку."
-                }
-            }
-
-            service == DownloadService.UNKNOWN -> {
-                rawMessage.ifBlank {
-                    "Не удалось скачать аудио. Проверьте ссылку и поддержку площадки в yt-dlp."
-                }
-            }
-
-            rawMessage.isNotBlank() -> rawMessage
-            else -> serviceFailureHint(service)
-        }
-    }
-
-    private fun serviceFailureHint(service: DownloadService): String {
-        return when (service) {
-            DownloadService.YOUTUBE ->
-                "Не удалось скачать трек с YouTube. При 429 подключите аккаунт и повторите попытку."
-
-            DownloadService.TIKTOK ->
-                "Не удалось скачать аудио из TikTok."
-
-            DownloadService.SOUNDCLOUD ->
-                "Не удалось скачать трек из SoundCloud."
-
-            else -> "Не удалось скачать музыку по ссылке. Проверьте доступность трека и повторите попытку."
-        }
-    }
-
-    private fun DownloadAccountStore.StoredAccountSession.toDownloadSession(): DownloadSession {
-        return DownloadSession(
-            cookiesText = cookiesText,
-            userAgent = userAgent,
-        )
-    }
+    private fun humanizeError(service: DownloadService, error: Throwable): String =
+        DownloadFailureText.forService(service, error)
 
     private class LibraryStoreImporter(
         private val libraryStore: LibraryStore,
@@ -529,7 +486,9 @@ class LinkDownloader(
         private val cacheDir: File,
     ) : DownloadWorkspaceManager {
         override fun createWorkspace(prefix: String): File {
-            return File(cacheDir, "luxmusic-$prefix-${System.currentTimeMillis()}").apply { mkdirs() }
+            return File(cacheDir, "luxmusic-$prefix-${UUID.randomUUID()}").apply {
+                check(mkdirs()) { "Не удалось создать временную папку. Проверьте свободное место." }
+            }
         }
 
         override fun cleanup(workspace: File) {

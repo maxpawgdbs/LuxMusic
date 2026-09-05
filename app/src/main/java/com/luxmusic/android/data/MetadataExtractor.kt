@@ -31,11 +31,11 @@ class MetadataExtractor(private val context: Context) {
                     album = infoMetadata?.album,
                     durationMs = fallbackDuration,
                     artworkBytes = findArtworkFile(file, availableCompanions)?.safeArtworkBytes(),
-                    lyrics = findLyricsFile(file, availableCompanions)?.readText()?.let(::normalizeLyrics),
+                    lyrics = findLyricsFile(file, availableCompanions)?.safeText()?.let(::normalizeLyrics),
                 )
             }
-            val artworkBytes = retriever.embeddedPicture ?: findArtworkFile(file, availableCompanions)?.readBytes()
-            val lyrics = findLyricsFile(file, availableCompanions)?.readText()?.let(::normalizeLyrics)
+            val artworkBytes = retriever.embeddedPicture ?: findArtworkFile(file, availableCompanions)?.safeArtworkBytes()
+            val lyrics = findLyricsFile(file, availableCompanions)?.safeText()?.let(::normalizeLyrics)
             val retrieverDurationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
@@ -57,7 +57,7 @@ class MetadataExtractor(private val context: Context) {
                 lyrics = lyrics,
             )
         } finally {
-            retriever.release()
+            runCatching { retriever.release() }
         }
     }
 
@@ -65,8 +65,13 @@ class MetadataExtractor(private val context: Context) {
         takeIf { length() in 1..MAX_ARTWORK_BYTES.toLong() }?.readBytes()
     }.getOrNull()
 
+    private fun File.safeText(): String? = runCatching {
+        takeIf { length() in 1..1_000_000 }?.readText()
+    }.getOrNull()
+
     fun probeDurationMs(file: File, companionFiles: List<File> = emptyList()): Long {
-        return fromFile(file, companionFiles).durationMs
+        // Validation must inspect the actual audio stream, not trust sidecar metadata or load artwork.
+        return extractDurationWithMediaExtractor(file) ?: 0L
     }
 
     private fun buildCompanionList(file: File, companionFiles: List<File>): List<File> {
@@ -109,7 +114,7 @@ class MetadataExtractor(private val context: Context) {
 
     private fun readInfoMetadata(file: File): InfoMetadata? {
         return runCatching {
-            val root = JSONObject(file.readText())
+            val root = JSONObject(file.safeText() ?: return null)
             InfoMetadata(
                 title = root.optStringOrNull("track")
                     ?: root.optStringOrNull("title")
@@ -152,7 +157,7 @@ class MetadataExtractor(private val context: Context) {
         } catch (_: Throwable) {
             null
         } finally {
-            extractor.release()
+            runCatching { extractor.release() }
         }
     }
 

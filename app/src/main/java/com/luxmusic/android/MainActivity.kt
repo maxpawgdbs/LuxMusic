@@ -26,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luxmusic.android.ui.LuxMusicScreen
 import com.luxmusic.android.ui.theme.LuxMusicTheme
-import com.luxmusic.android.data.DownloadService
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -47,7 +46,6 @@ class MainActivity : ComponentActivity() {
                 var pendingTrackArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingPlaylistArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingArtistArtworkName by rememberSaveable { mutableStateOf<String?>(null) }
-                var pendingCookieServiceName by rememberSaveable { mutableStateOf<String?>(null) }
                 val importLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments(),
                 ) { uris ->
@@ -57,14 +55,6 @@ class MainActivity : ComponentActivity() {
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission(),
                 ) { }
-                val cookiesLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.OpenDocument(),
-                ) { uri ->
-                    val service = pendingCookieServiceName
-                        ?.let { name -> runCatching { DownloadService.valueOf(name) }.getOrNull() }
-                    if (service != null) viewModel.importDownloadAccountCookies(service, uri)
-                    pendingCookieServiceName = null
-                }
                 val trackArtworkLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent(),
                 ) { uri ->
@@ -95,7 +85,9 @@ class MainActivity : ComponentActivity() {
                             Manifest.permission.POST_NOTIFICATIONS,
                         ) != PackageManager.PERMISSION_GRANTED
                     ) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        viewModel.reportActivityFailure {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
                     }
 
                     viewModel.messages.collect { message ->
@@ -151,15 +143,15 @@ class MainActivity : ComponentActivity() {
                     onUpdateTrackDetails = viewModel::updateTrackDetails,
                     onPickTrackArtwork = { trackId ->
                         pendingTrackArtworkId = trackId
-                        trackArtworkLauncher.launch("image/*")
+                        viewModel.reportActivityFailure { trackArtworkLauncher.launch("image/*") }
                     },
                     onPickPlaylistArtwork = { playlistId ->
                         pendingPlaylistArtworkId = playlistId
-                        playlistArtworkLauncher.launch("image/*")
+                        viewModel.reportActivityFailure { playlistArtworkLauncher.launch("image/*") }
                     },
                     onPickArtistArtwork = { artist ->
                         pendingArtistArtworkName = artist
-                        artistArtworkLauncher.launch("image/*")
+                        viewModel.reportActivityFailure { artistArtworkLauncher.launch("image/*") }
                     },
                     onDeleteTrack = viewModel::deleteTrack,
                     onDeletePlaylist = viewModel::deletePlaylist,
@@ -179,20 +171,6 @@ class MainActivity : ComponentActivity() {
                     onDownloadLink = viewModel::downloadFromLink,
                     onConnectYandex = viewModel::connectYandexMusic,
                     onDisconnectYandex = viewModel::disconnectYandexMusic,
-                    onCaptureDownloadAccount = viewModel::captureDownloadAccountCookies,
-                    onImportDownloadCookies = { service ->
-                        pendingCookieServiceName = service.name
-                        runCatching { cookiesLauncher.launch(arrayOf("text/plain", "*/*")) }
-                            .onFailure { error ->
-                                pendingCookieServiceName = null
-                                uiScope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        error.message ?: "Не удалось открыть выбор cookies.txt.",
-                                    )
-                                }
-                            }
-                    },
-                    onClearDownloadAccount = viewModel::clearDownloadAccount,
                 )
             }
         }

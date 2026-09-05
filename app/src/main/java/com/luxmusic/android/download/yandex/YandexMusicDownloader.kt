@@ -1,5 +1,7 @@
 package com.luxmusic.android.download.yandex
 
+import com.luxmusic.android.runCatchingCancellable
+import kotlinx.coroutines.ensureActive
 import android.content.Context
 import android.os.Build
 import androidx.core.content.edit
@@ -89,13 +91,13 @@ class YandexMusicDownloader(
 
     suspend fun beginAuthorization(): Result<YandexDeviceCode> = withContext(Dispatchers.IO) {
         authorizationRequestMutex.withLock {
-            runCatching {
+            runCatchingCancellable {
                 tokenStore.load()?.let {
                     throw IllegalStateException("Аккаунт Яндекс Музыки уже подключён.")
                 }
                 tokenStore.loadPending()?.let { pending ->
                     mutableAuthState.value = pending.toAuthState()
-                    return@runCatching pending.toDeviceCode()
+                    return@runCatchingCancellable pending.toDeviceCode()
                 }
                 mutableAuthState.value = YandexAuthState(
                     isAuthorizing = true,
@@ -121,10 +123,10 @@ class YandexMusicDownloader(
 
     suspend fun completePendingAuthorization(): Result<Unit> = withContext(Dispatchers.IO) {
         authorizationPollingMutex.withLock {
-            runCatching {
+            runCatchingCancellable {
                 tokenStore.load()?.let { stored ->
                     mutableAuthState.value = stored.toAuthState()
-                    return@runCatching
+                    return@runCatchingCancellable
                 }
                 val pending = tokenStore.loadPending()
                     ?: error("Код подтверждения истёк. Начните подключение снова.")
@@ -201,14 +203,23 @@ class YandexMusicDownloader(
         val workspace = File(appContext.cacheDir, "luxmusic-yandex-${UUID.randomUUID()}").apply {
             check(mkdirs() || isDirectory) { "Не удалось подготовить папку загрузки." }
         }
-        val downloaded = mutableListOf<Pair<YandexTrack, DownloadedTrackImport>>()
+        val pendingImports = mutableListOf<DownloadedTrackImport>()
+        val localBySourceId = linkedMapOf<String, com.luxmusic.android.data.Track>()
+        suspend fun flushImports() {
+            if (pendingImports.isEmpty()) return
+            libraryStore.importDownloadedTracks(pendingImports).forEach { localBySourceId[it.sourceId] = it.track }
+            pendingImports.clear()
+        }
         val warnings = mutableListOf<String>()
-        val artworkCache = mutableMapOf<String, ByteArray?>()
+        val artworkCache = object : LinkedHashMap<String, ByteArray?>(4, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray?>?): Boolean = size > 2
+        }
         try {
             uniqueTracks.forEachIndexed { index, track ->
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 val startProgress = 0.05f + (index.toFloat() / uniqueTracks.size) * 0.78f
                 progress(startProgress, "Скачиваем ${index + 1} из ${uniqueTracks.size}: ${track.title}")
-                runCatching {
+                runCatchingCancellable {
                     val downloadedFile = downloadTrack(track, workspace)
                     val artwork = track.coverUri?.let { coverUri ->
                         if (artworkCache.containsKey(coverUri)) {
@@ -228,17 +239,17 @@ class YandexMusicDownloader(
                         sourceUrl = sourceUrl,
                     )
                 }.onSuccess { item ->
-                    downloaded += track to item
+                    pendingImports += item
                 }.onFailure { error ->
                     warnings += "${track.artistNames} — ${track.title}: ${error.userMessage("ошибка загрузки")}".take(350)
                 }
+                if (pendingImports.size >= 4) flushImports()
             }
-            require(downloaded.isNotEmpty()) {
+            flushImports()
+            require(localBySourceId.isNotEmpty()) {
                 warnings.firstOrNull() ?: "Не удалось скачать ни одного трека."
             }
             progress(0.86f, "Сохраняем треки в библиотеку...")
-            val imported = libraryStore.importDownloadedTracks(downloaded.map { it.second })
-            val localBySourceId = imported.associate { it.sourceId to it.track }
             require(localBySourceId.isNotEmpty()) { "Не удалось добавить скачанные файлы в библиотеку." }
 
             val playlistGroups = collection.albums.mapNotNull { album ->
@@ -247,14 +258,14 @@ class YandexMusicDownloader(
             }
             progress(1f, "Из Яндекс Музыки сохранено ${localBySourceId.size} трек(ов).")
             YandexDownloadResult(
-                tracks = downloaded.mapNotNull { localBySourceId[it.first.id.toString()] },
+                tracks = uniqueTracks.mapNotNull { localBySourceId[it.id.toString()] },
                 collectionLabel = collection.label,
                 sourceKind = collection.sourceKind,
                 playlistGroups = playlistGroups,
                 warnings = warnings,
             )
         } finally {
-            runCatching { workspace.deleteRecursively() }
+            runCatchingCancellable { workspace.deleteRecursively() }
         }
     }
 
@@ -285,7 +296,7 @@ class YandexMusicDownloader(
         return stored
     }
 
-    private fun downloadTrack(track: YandexTrack, workspace: File): File {
+    private suspend fun downloadTrack(track: YandexTrack, workspace: File): File {
         var lastError: Throwable? = null
         repeat(DOWNLOAD_ATTEMPTS) { attempt ->
             try {
@@ -300,17 +311,19 @@ class YandexMusicDownloader(
                 downloadFile(directUrl, destination, MAX_TRACK_BYTES)
                 require(destination.length() > 0L) { "Получен пустой аудиофайл." }
                 return destination
-            } catch (error: Throwable) {
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 lastError = error
-                if (attempt + 1 < DOWNLOAD_ATTEMPTS) Thread.sleep(750L * (attempt + 1))
+                if (attempt + 1 < DOWNLOAD_ATTEMPTS) kotlinx.coroutines.delay(750L * (attempt + 1))
             }
         }
         throw lastError ?: IllegalStateException("Не удалось скачать трек.")
     }
 
-    private fun downloadCover(rawCoverUri: String): ByteArray? {
+    private suspend fun downloadCover(rawCoverUri: String): ByteArray? {
         val sizedUrl = YandexDownloadPolicy.coverUrl(rawCoverUri) ?: return null
-        return runCatching {
+        return runCatchingCancellable {
             val temporary = File.createTempFile("lux-cover-", ".img", appContext.cacheDir)
             try {
                 downloadFile(sizedUrl, temporary, MAX_COVER_BYTES)
@@ -321,7 +334,7 @@ class YandexMusicDownloader(
         }.getOrNull()
     }
 
-    private fun downloadFile(url: String, destination: File, limit: Long) {
+    private suspend fun downloadFile(url: String, destination: File, limit: Long) {
         val uri = URI(url)
         require(uri.scheme == "https" && uri.userInfo == null) { "Небезопасная ссылка на файл." }
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -329,11 +342,12 @@ class YandexMusicDownloader(
             instanceFollowRedirects = true
             connectTimeout = 20_000
             readTimeout = 60_000
-            setRequestProperty("User-Agent", "LuxMusic/0.6 Android")
+            setRequestProperty("User-Agent", "LuxMusic/0.7 Android")
         }
         try {
             val status = connection.responseCode
             require(status in 200..299) { "Сервер вернул HTTP $status." }
+            require(connection.url.protocol.equals("https", true)) { "Сервис перенаправил на незащищённое соединение." }
             val declared = connection.contentLengthLong
             require(declared < 0L || declared <= limit) { "Файл превышает допустимый размер." }
             var total = 0L
@@ -341,6 +355,7 @@ class YandexMusicDownloader(
                 destination.outputStream().buffered().use { output ->
                     val buffer = ByteArray(128 * 1024)
                     while (true) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
                         val read = input.read(buffer)
                         if (read < 0) break
                         total += read
@@ -398,7 +413,7 @@ private class YandexTokenStore(context: Context) {
 
     fun load(): StoredYandexToken? {
         val raw = preferences.getString(KEY_TOKEN, null) ?: return null
-        return runCatching {
+        return runCatchingCancellable {
             val root = JSONObject(raw)
             StoredYandexToken(
                 accessToken = root.getString("accessToken"),
@@ -421,7 +436,7 @@ private class YandexTokenStore(context: Context) {
 
     fun loadPending(): PendingYandexAuthorization? {
         val raw = preferences.getString(KEY_PENDING, null) ?: return null
-        val pending = runCatching {
+        val pending = runCatchingCancellable {
             val root = JSONObject(raw)
             PendingYandexAuthorization(
                 deviceCode = root.getString("deviceCode"),

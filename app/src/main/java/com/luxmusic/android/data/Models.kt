@@ -111,12 +111,6 @@ enum class DownloadService(
     ),
 }
 
-data class DownloadAccountState(
-    val service: DownloadService,
-    val isConnected: Boolean,
-    val updatedAt: Long? = null,
-)
-
 data class ExtractedTrackMetadata(
     val title: String?,
     val artist: String?,

@@ -1,9 +1,14 @@
 package com.luxmusic.android.download
 
+import com.luxmusic.android.runCatchingCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.luxmusic.android.data.DownloadService
 import com.luxmusic.android.data.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import kotlin.math.abs
 
@@ -14,6 +19,8 @@ internal class LinkDownloadExecutor(
     private val importer: DownloadedTrackImporter,
     private val audioInspector: DownloadAudioInspector,
     private val workspaceManager: DownloadWorkspaceManager,
+    private val tiktokFallback: MediaDownloadBackend? = null,
+    private val extractorUpdateTimeoutMs: Long = 45_000,
 ) {
     @Volatile
     private var nightlyRefreshAttempted = false
@@ -49,8 +56,9 @@ internal class LinkDownloadExecutor(
 
         var lastError: Throwable? = null
         for (attempt in plan.attempts) {
+            currentCoroutineContext().ensureActive()
             val attemptSession = sessionProvider(attempt.requestService)
-            val directAttempt = runCatching {
+            val directAttempt = runCatchingCancellable {
                 performAttempt(
                     plan = plan,
                     attempt = attempt,
@@ -68,8 +76,10 @@ internal class LinkDownloadExecutor(
 
             lastError = directAttempt.exceptionOrNull()
 
-            if (attempt.allowsNightlyRetry && refreshNightlyExtractorsIfNeeded(attempt.requestService, onStatus)) {
-                val nightlyAttempt = runCatching {
+            if (lastError is MediaExtractionFailure && attempt.allowsNightlyRetry &&
+                refreshNightlyExtractorsIfNeeded(attempt.requestService, onStatus)
+            ) {
+                val nightlyAttempt = runCatchingCancellable {
                     performAttempt(
                         plan = plan,
                         attempt = attempt,
@@ -85,6 +95,18 @@ internal class LinkDownloadExecutor(
                 }
                 lastError = nightlyAttempt.exceptionOrNull()
             }
+            if (lastError is MediaExtractionFailure && attempt.requestService == DownloadService.TIKTOK &&
+                tiktokFallback != null
+            ) {
+                onStatus(0.08f, "Пробуем резервный источник аудио TikTok.")
+                val fallback = runCatchingCancellable {
+                    performAttempt(plan, attempt, null, onStatus, tiktokFallback)
+                }
+                if (fallback.isSuccess) {
+                    return@withContext DownloadExecutionResult(fallback.getOrThrow(), attempt)
+                }
+                lastError = fallback.exceptionOrNull()
+            }
         }
 
         throw lastError ?: IllegalStateException(noDownloadPlanHint(sourceService))
@@ -95,6 +117,7 @@ internal class LinkDownloadExecutor(
         attempt: DownloadAttempt,
         session: DownloadSession?,
         onStatus: (progress: Float, message: String) -> Unit,
+        downloadBackend: MediaDownloadBackend = backend,
     ): List<Track> {
         val workspace = workspaceManager.createWorkspace("download")
 
@@ -105,19 +128,28 @@ internal class LinkDownloadExecutor(
             )
 
             val progressLimiter = DownloadProgressLimiter()
-            backend.download(
-                requestUrl = attempt.requestUrl,
-                service = attempt.requestService,
-                session = session,
-                outputDir = workspace,
-            ) { progress, _ ->
-                val mappedProgress =
-                    (0.1f + progress.coerceIn(0f, 100f) / 100f * 0.85f).coerceIn(0f, 0.95f)
-                if (progressLimiter.shouldPublish(mappedProgress)) {
-                    onStatus(mappedProgress, defaultProgressMessage(attempt))
+            try {
+                runInterruptible {
+                    downloadBackend.download(
+                        requestUrl = attempt.requestUrl,
+                        service = attempt.requestService,
+                        session = session,
+                        outputDir = workspace,
+                    ) { progress, _ ->
+                        val mappedProgress =
+                            (0.1f + (progress.takeIf(Float::isFinite) ?: 0f).coerceIn(0f, 100f) / 100f * 0.85f).coerceIn(0f, 0.95f)
+                        if (progressLimiter.shouldPublish(mappedProgress)) {
+                            onStatus(mappedProgress, defaultProgressMessage(attempt))
+                        }
+                    }
                 }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                throw MediaExtractionFailure(error)
             }
 
+            currentCoroutineContext().ensureActive()
             val files = workspace.listFiles()?.toList().orEmpty()
             val audioFiles = files.filter { file ->
                 file.isFile && file.extension.lowercase() in SUPPORTED_AUDIO_EXTENSIONS
@@ -158,14 +190,16 @@ internal class LinkDownloadExecutor(
         }
     }
 
-    private fun refreshNightlyExtractorsIfNeeded(
+    private suspend fun refreshNightlyExtractorsIfNeeded(
         service: DownloadService,
         onStatus: (progress: Float, message: String) -> Unit,
     ): Boolean {
         if (nightlyRefreshAttempted) return false
         nightlyRefreshAttempted = true
         onStatus(0.08f, "Обновляем поддержку ${service.title} и повторяем запрос.")
-        val updated = runCatching { backend.update(ExtractorChannel.NIGHTLY) }.isSuccess
+        val updated = withTimeoutOrNull(extractorUpdateTimeoutMs) {
+            runCatchingCancellable { runInterruptible { backend.update(ExtractorChannel.NIGHTLY) } }.isSuccess
+        } ?: false
         if (!updated) {
             nightlyRefreshAttempted = false
         }
@@ -188,7 +222,7 @@ internal class LinkDownloadExecutor(
 
         val bestFile = significantFiles.maxWithOrNull(
             compareBy<File> { candidateScore(it, expectedDurationMs) }
-                .thenByDescending(File::length),
+                .thenBy(File::length),
         ) ?: significantFiles.first()
 
         validateAudioFile(bestFile, expectedDurationMs, service)
@@ -211,7 +245,7 @@ internal class LinkDownloadExecutor(
     ) {
         val actualDurationMs = audioInspector.probeDurationMs(file)
 
-        if (actualDurationMs <= 0L && file.length() < MIN_AUDIO_BYTES) {
+        if (actualDurationMs <= 0L || file.length() == 0L) {
             throw IllegalStateException("Сервис вернул пустой или неполный аудиофайл.")
         }
 
@@ -289,4 +323,6 @@ internal class LinkDownloadExecutor(
             "mp4",
         )
     }
+
+    private class MediaExtractionFailure(cause: Exception) : IllegalStateException(cause.message, cause)
 }

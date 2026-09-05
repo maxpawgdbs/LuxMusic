@@ -10,6 +10,8 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import com.luxmusic.android.LuxMusicApp
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -35,7 +37,8 @@ internal class PlaybackController(
 ) {
     private val appContext = service.applicationContext
     private val playbackPreferences = appContext.getSharedPreferences(PLAYBACK_PREFERENCES, Context.MODE_PRIVATE)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val messages = (service.application as LuxMusicApp).messages
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + messages.exceptionHandler)
     private val player = ExoPlayer.Builder(service)
         .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
         .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
@@ -50,6 +53,8 @@ internal class PlaybackController(
             setHandleAudioBecomingNoisy(true)
         }
     private var currentQueue: List<Track> = emptyList()
+    private var artworkTrackId: String? = null
+    private var resumeRestoredQueue = false
     private var currentQueueTitle: String = DEFAULT_QUEUE_TITLE
     private var currentPlaylistId: String? = null
     private var lastPersistedState: PersistedPlaybackState? = null
@@ -66,12 +71,20 @@ internal class PlaybackController(
         player.addListener(
             object : Player.Listener {
                 override fun onEvents(player: Player, events: Player.Events) {
-                    publishState()
+                    messages.attempt("Не удалось обновить состояние плеера.") {
+                        refreshCurrentArtwork()
+                        publishState()
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e(TAG, "Playback failed", error)
+                    messages.emit("Не удалось воспроизвести трек. Файл недоступен, повреждён или его формат не поддерживается.")
                 }
             },
         )
 
-        restorePlaybackState()
+        messages.attempt("Не удалось восстановить очередь воспроизведения.") { restorePlaybackState() }
 
         scope.launch {
             while (isActive) {
@@ -97,6 +110,7 @@ internal class PlaybackController(
         playlistId: String? = null,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        resumeRestoredQueue = false
 
         val sameQueue = currentQueue.map(Track::id) == tracks.map(Track::id)
         val selectedTrack = tracks[startIndex]
@@ -123,7 +137,7 @@ internal class PlaybackController(
         }
 
         val mediaItems = tracks.map(::mediaItem)
-
+        artworkTrackId = null
         player.setMediaItems(mediaItems, startIndex, 0L)
         player.prepare()
         player.play()
@@ -131,6 +145,7 @@ internal class PlaybackController(
     }
 
     fun togglePlayback() {
+        resumeRestoredQueue = false
         if (player.mediaItemCount == 0) return
 
         if (player.isPlaying) {
@@ -223,6 +238,7 @@ internal class PlaybackController(
             queue[index] = updatedTrack
         }
         val currentItem = player.getMediaItemAt(index)
+        if (artworkTrackId == updatedTrack.id) artworkTrackId = null
         player.replaceMediaItem(
             index,
             currentItem.buildUpon()
@@ -288,6 +304,12 @@ internal class PlaybackController(
 
     fun mediaSession(): MediaSession = mediaSession
 
+    fun resumeRestoredPlayback() {
+        val resume = resumeRestoredQueue
+        resumeRestoredQueue = false
+        if (resume && player.mediaItemCount > 0) player.play()
+    }
+
     fun hasMediaItems(): Boolean = player.mediaItemCount > 0
 
     fun isPlaying(): Boolean = player.isPlaying
@@ -334,7 +356,7 @@ internal class PlaybackController(
         val orderedIds = mutableListOf<String>()
         while (index != C.INDEX_UNSET && visited.add(index)) {
             orderedIds += player.getMediaItemAt(index).mediaId
-            index = player.getNextMediaItemIndex()
+            index = player.currentTimeline.getNextWindowIndex(index, Player.REPEAT_MODE_ALL, player.shuffleModeEnabled)
         }
         return orderedIds
     }
@@ -347,13 +369,31 @@ internal class PlaybackController(
             .build()
     }
 
-    private fun mediaMetadata(track: Track): MediaMetadata = MediaMetadata.Builder()
+    private fun refreshCurrentArtwork() {
+        val index = player.currentMediaItemIndex
+        val track = currentQueue.getOrNull(index) ?: return
+        if (artworkTrackId == track.id) return
+        val previousIndex = currentQueue.indexOfFirst { it.id == artworkTrackId }
+        // Mark before replacing metadata, because replacement itself emits player events.
+        artworkTrackId = track.id
+        if (previousIndex >= 0 && previousIndex != index && previousIndex < player.mediaItemCount) {
+            val previous = player.getMediaItemAt(previousIndex)
+            player.replaceMediaItem(previousIndex, previous.buildUpon()
+                .setMediaMetadata(mediaMetadata(currentQueue[previousIndex])).build())
+        }
+        val current = player.getMediaItemAt(index)
+        player.replaceMediaItem(index, current.buildUpon()
+            .setMediaMetadata(mediaMetadata(track, includeArtwork = true)).build())
+    }
+
+    private fun mediaMetadata(track: Track, includeArtwork: Boolean = false): MediaMetadata = MediaMetadata.Builder()
         .setTitle(track.title)
         .setArtist(track.artist)
         .setAlbumTitle(track.album)
         .setDurationMs(track.durationMs.takeIf { it > 0L })
         .apply {
-            PlaybackArtwork.read(track.artworkPath)?.let { artwork ->
+            // Only the current item carries image bytes; large queues must not retain every cover.
+            (if (includeArtwork) PlaybackArtwork.read(track.artworkPath) else null)?.let { artwork ->
                 setArtworkData(artwork, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
             }
         }
@@ -387,15 +427,16 @@ internal class PlaybackController(
         player.setMediaItems(restoredQueue.map(::mediaItem), startIndex, positionMs)
         player.shuffleModeEnabled = playbackPreferences.getBoolean(KEY_SHUFFLE, false)
         player.repeatMode = playbackPreferences.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
+            .takeIf { it in Player.REPEAT_MODE_OFF..Player.REPEAT_MODE_ALL } ?: Player.REPEAT_MODE_OFF
         if (player.shuffleModeEnabled) {
             player.repeatMode = PlaybackModePolicy
                 .repeatAfterShuffleEnabled(player.repeatMode.toRepeatMode())
                 .toPlayerRepeatMode()
         }
+        // Merely creating a service (including a stale Media3 start intent) must
+        // not start playback and enqueue another foreground-service start.
+        resumeRestoredQueue = playbackPreferences.getBoolean(KEY_PLAY_WHEN_READY, false)
         player.prepare()
-        if (playbackPreferences.getBoolean(KEY_PLAY_WHEN_READY, false)) {
-            player.play()
-        }
         publishState()
     }
 

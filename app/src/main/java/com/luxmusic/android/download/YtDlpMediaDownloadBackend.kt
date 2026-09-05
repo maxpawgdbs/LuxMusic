@@ -2,6 +2,7 @@ package com.luxmusic.android.download
 
 import android.content.Context
 import com.luxmusic.android.data.DownloadService
+import com.luxmusic.android.runCatchingCancellable
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -18,17 +19,14 @@ internal class YtDlpMediaDownloadBackend(
     private var ffmpegInitialized = false
 
     fun initialize() {
+        BundledExtractorInstaller.installIfNeeded(context)
         youtubeDl.init(context)
     }
 
     override fun update(channel: ExtractorChannel) {
-        youtubeDl.updateYoutubeDL(
-            context,
-            when (channel) {
-                ExtractorChannel.STABLE -> YoutubeDL.UpdateChannel._STABLE
-                ExtractorChannel.NIGHTLY -> YoutubeDL.UpdateChannel._NIGHTLY
-            },
-        )
+        // The wrapper's updater performs an unbounded URL read. Use the interruptible
+        // native updater, which also verifies the official release checksum.
+        youtubeDl.execute(buildUpdateRequest(channel), "luxmusic-update-${UUID.randomUUID()}")
     }
 
     override fun fetchInfo(
@@ -38,7 +36,7 @@ internal class YtDlpMediaDownloadBackend(
     ): DownloadSourceMetadata? {
         val workspace = createWorkspace("info")
         return try {
-            runCatching {
+            runCatchingCancellable {
                 youtubeDl.getInfo(
                     buildInfoRequest(
                         url = url,
@@ -92,18 +90,20 @@ internal class YtDlpMediaDownloadBackend(
     ): YoutubeDLRequest {
         val profile = requestProfileFor(service)
         val request = YoutubeDLRequest(url)
+            .addOption("--ignore-config")
             .addOption("-f", profile.formatSelector)
             .addOption("--no-playlist")
             .addOption("--no-warnings")
             .addOption("--newline")
             .addOption("--restrict-filenames")
-            .addOption("--no-part")
             .addOption("--no-mtime")
             .addOption("--abort-on-unavailable-fragments")
             .addOption("--concurrent-fragments", 4)
             .addOption("--retries", serviceRequestRetries(service))
             .addOption("--fragment-retries", serviceFragmentRetries(service))
             .addOption("--extractor-retries", serviceExtractorRetries(service))
+            .addOption("--file-access-retries", 3)
+            .addOption("--max-filesize", "1G")
             .addOption("--socket-timeout", serviceSocketTimeoutSeconds(service))
             .addOption("--sleep-requests", serviceSleepRequestsSeconds(service, session))
             .addOption("--write-thumbnail")
@@ -127,6 +127,7 @@ internal class YtDlpMediaDownloadBackend(
         session: DownloadSession?,
     ): YoutubeDLRequest {
         val request = YoutubeDLRequest(url)
+            .addOption("--ignore-config")
             .addOption("--no-playlist")
             .addOption("--no-warnings")
             .addOption("--socket-timeout", serviceSocketTimeoutSeconds(service))
@@ -141,7 +142,7 @@ internal class YtDlpMediaDownloadBackend(
         service: DownloadService,
         session: DownloadSession?,
     ): YoutubeDLRequest {
-        if (session == null) return request
+        if (session == null || service == DownloadService.YOUTUBE) return request
 
         val cookieFile = File(jobDir, "${service.name.lowercase()}-cookies.txt").apply {
             writeText(session.cookiesText)
@@ -163,7 +164,9 @@ internal class YtDlpMediaDownloadBackend(
     )
 
     private fun createWorkspace(prefix: String): File {
-        return File(context.cacheDir, "luxmusic-$prefix-${System.currentTimeMillis()}").apply { mkdirs() }
+        return File(context.cacheDir, "luxmusic-$prefix-${UUID.randomUUID()}").apply {
+            check(mkdirs()) { "Не удалось создать временную папку загрузки. Проверьте свободное место." }
+        }
     }
 
     private fun cleanup(jobDir: File) {
@@ -192,18 +195,20 @@ internal class YtDlpMediaDownloadBackend(
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 
     companion object {
+        internal fun buildUpdateRequest(channel: ExtractorChannel): YoutubeDLRequest =
+            YoutubeDLRequest(emptyList<String>())
+                .addOption("--ignore-config")
+                .addOption("--update-to", if (channel == ExtractorChannel.NIGHTLY) "nightly" else "stable")
+                .addOption("--socket-timeout", 15)
+                .addOption("--retries", 1)
+
         internal fun requestProfileFor(service: DownloadService): YtDlpRequestProfile {
             return when (service) {
-                DownloadService.YOUTUBE -> YtDlpRequestProfile(
-                    formatSelector = AUDIO_ONLY_FORMAT,
-                    extractAudio = false,
-                    targetAudioExtension = null,
-                )
-
+                DownloadService.YOUTUBE,
                 DownloadService.TIKTOK,
                 DownloadService.UNKNOWN,
                 -> YtDlpRequestProfile(
-                    formatSelector = "$AUDIO_ONLY_FORMAT/best[acodec!=none]",
+                    formatSelector = AUDIO_ONLY_FORMAT,
                     extractAudio = true,
                     targetAudioExtension = "best",
                 )
@@ -217,7 +222,7 @@ internal class YtDlpMediaDownloadBackend(
         }
 
         private const val AUDIO_ONLY_FORMAT =
-            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=none]"
+            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=?none]"
     }
 }
 

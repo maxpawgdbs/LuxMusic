@@ -8,13 +8,26 @@ import org.junit.Test
 
 class YtDlpMediaDownloadBackendTest {
     @Test
-    fun `youtube downloads audio only without conversion`() {
+    fun `extractor updates use bounded native requests without a media URL`() {
+        for (channel in ExtractorChannel.entries) {
+            val request = YtDlpMediaDownloadBackend.buildUpdateRequest(channel)
+            assertEquals(if (channel == ExtractorChannel.NIGHTLY) "nightly" else "stable", request.getOption("--update-to"))
+            assertEquals("15", request.getOption("--socket-timeout"))
+            assertEquals("1", request.getOption("--retries"))
+            assertTrue(request.hasOption("--ignore-config"))
+            assertFalse(request.buildCommand().any { it.startsWith("http") })
+        }
+    }
+
+    @Test
+    fun `youtube extracts audio even when only a combined stream is available`() {
         val profile = YtDlpMediaDownloadBackend.requestProfileFor(DownloadService.YOUTUBE)
 
         assertTrue(profile.formatSelector.startsWith("bestaudio"))
         assertFalse(profile.formatSelector.contains("bestvideo"))
-        assertFalse(profile.extractAudio)
-        assertEquals(null, profile.targetAudioExtension)
+        assertTrue(profile.formatSelector.contains("best[acodec!=?none]"))
+        assertTrue(profile.extractAudio)
+        assertEquals("best", profile.targetAudioExtension)
     }
 
     @Test
@@ -22,7 +35,7 @@ class YtDlpMediaDownloadBackendTest {
         val profile = YtDlpMediaDownloadBackend.requestProfileFor(DownloadService.SOUNDCLOUD)
 
         assertEquals(
-            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=none]",
+            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=?none]",
             profile.formatSelector,
         )
         assertFalse(profile.extractAudio)
@@ -35,5 +48,12 @@ class YtDlpMediaDownloadBackendTest {
 
         assertTrue(profile.extractAudio)
         assertEquals("best", profile.targetAudioExtension)
+    }
+
+    @Test
+    fun `direct media with unknown codec is probed by ffmpeg instead of rejected`() {
+        val profile = YtDlpMediaDownloadBackend.requestProfileFor(DownloadService.UNKNOWN)
+        assertTrue(profile.formatSelector.contains("[acodec!=?none]"))
+        assertTrue(profile.extractAudio)
     }
 }

@@ -21,7 +21,9 @@ import kotlinx.coroutines.launch
  */
 @UnstableApi
 class PlaybackSessionService : MediaSessionService() {
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val serviceScope by lazy {
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + luxApp.messages.exceptionHandler)
+    }
     private lateinit var playbackController: PlaybackController
 
     private val luxApp: LuxMusicApp
@@ -30,33 +32,45 @@ class PlaybackSessionService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "PlaybackSessionService created")
-        playbackController = PlaybackController(
-            service = this,
-            libraryStore = luxApp.libraryStore,
-            stateSink = luxApp.playbackGateway::publish,
-        )
-        setMediaNotificationProvider(
-            LuxMediaNotificationProvider(this, playbackController::notificationQueueTitle),
-        )
-        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_ALWAYS)
-        addSession(playbackController.mediaSession())
-        serviceScope.launch {
-            while (isActive) {
-                delay(NOTIFICATION_REFRESH_MS)
-                if (playbackController.isPlaying()) triggerNotificationUpdate()
+        try {
+            playbackController = PlaybackController(
+                service = this,
+                libraryStore = luxApp.libraryStore,
+                stateSink = luxApp.playbackGateway::publish,
+            )
+            setMediaNotificationProvider(
+                LuxMediaNotificationProvider(this, playbackController::notificationQueueTitle),
+            )
+            setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_ALWAYS)
+            addSession(playbackController.mediaSession())
+            serviceScope.launch {
+                while (isActive) {
+                    delay(NOTIFICATION_REFRESH_MS)
+                    if (playbackController.isPlaying()) triggerNotificationUpdate()
+                }
             }
+            Log.i(TAG, "MediaSession registered in the foreground playback service")
+        } catch (error: Exception) {
+            Log.e(TAG, "Playback service initialization failed", error)
+            luxApp.messages.report(error, "Не удалось запустить плеер.")
+            stopSelf()
         }
-        Log.i(TAG, "MediaSession registered in the foreground playback service")
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         Log.i(TAG, "Controller connected: ${controllerInfo.packageName}")
-        return playbackController.mediaSession()
+        return if (::playbackController.isInitialized) playbackController.mediaSession() else null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        super.onStartCommand(intent, flags, startId)
-        handleCommand(intent)
+        if (!::playbackController.isInitialized) {
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
+        luxApp.messages.attempt("Не удалось выполнить команду плеера.") {
+            super.onStartCommand(intent, flags, startId)
+            handleCommand(intent)
+        }
         if (!playbackController.hasMediaItems()) {
             stopSelfResult(startId)
             return START_NOT_STICKY
@@ -65,6 +79,10 @@ class PlaybackSessionService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        if (!::playbackController.isInitialized) {
+            stopSelf()
+            return
+        }
         if (playbackController.shouldRemainWhenTaskRemoved()) {
             Log.i(TAG, "Task removed while playing; foreground service remains active")
             return
@@ -72,8 +90,7 @@ class PlaybackSessionService : MediaSessionService() {
 
         Log.i(TAG, "Task removed while idle; persisting playback and removing notification")
         playbackController.pauseAndPersistForTaskRemoval()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        pauseAllPlayersAndStopSelf()
     }
 
     override fun onDestroy() {
@@ -88,7 +105,8 @@ class PlaybackSessionService : MediaSessionService() {
 
     private fun handleCommand(intent: Intent?) {
         when (intent?.action) {
-            ACTION_RESTORE -> Unit
+            ACTION_RESTORE -> playbackController.resumeRestoredPlayback()
+            null -> if (intent == null) playbackController.resumeRestoredPlayback()
             ACTION_PLAY_COLLECTION -> playCollection(intent)
             ACTION_TOGGLE -> playbackController.togglePlayback()
             ACTION_NEXT -> playbackController.skipNext()
@@ -123,7 +141,8 @@ class PlaybackSessionService : MediaSessionService() {
         val startTrackId = intent.getStringExtra(EXTRA_START_TRACK_ID)
         val startIndex = queue.indexOfFirst { it.id == startTrackId }
         if (queue.isEmpty() || startIndex < 0) {
-            stopSelf()
+            luxApp.messages.emit("В выбранной очереди нет доступных треков.")
+            if (!playbackController.hasMediaItems()) pauseAllPlayersAndStopSelf()
             return
         }
         playbackController.playOrToggleCollection(
