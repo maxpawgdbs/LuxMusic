@@ -3,12 +3,13 @@
 Local verification on 2026-09-05 used JDK 21, SDK 36 and a dedicated Android 15/API 35 emulator. No Docker was used.
 
 - **102 JVM tests:** passed, zero failures or errors.
-- **13 Android regression tests:** passed. The regular runner reports 14 tests because the optional live-network test is skipped unless a URL is supplied.
-- Android coverage includes rapid navigation, removal of the YouTube cookie UI, visible operation errors, library import, legacy/corrupt index recovery, the full playback queue and native QuickJS execution.
+- **16 Android regression tests:** passed. The regular runner reports 17 tests because the optional live-network test is skipped unless a URL is supplied.
+- Android coverage includes rapid navigation, removal of the YouTube cookie UI, visible operation errors, library import, legacy/corrupt index recovery, the full playback queue, native QuickJS execution and safe service startup for paused/empty/unavailable queues.
 - Native download checks serve local WAV and generated combined MP4 fixtures over HTTP, extract playable audio through yt-dlp/FFmpeg, and check duration with Android's media APIs. The MP4 check covers direct media whose codec is unknown before download.
 - **Release build, lint and R8 keep-rule verification:** passed. The universal APK contains ARM64 and ARMv7 libraries, keeps `com.luxmusic.android`, and has version name `0.7` / local version code `7000000`.
 - **Real APK upgrade:** the official GitHub `v0.6.2` APK was installed, seeded with a test WAV and playlist, then updated with the minified 0.7 release using `adb install -r`. Audio bytes, path, ID, metadata and playlist membership were unchanged. The track was visible in both releases.
 - The old and new signing certificate SHA-256 is `2722807a9cc2b6c14042f32534589ce25290abfbc0b822a59a9a3b05cc8288e6`.
+- Final APK checks exposed a delayed foreground-service timeout when opening a saved queue. After correcting the UI service-start contract, the minified APK passed both paused-queue and missing-queue cold starts: the same process remained alive for 15 seconds, the saved track was visible, and the exact audio/playlist verification passed again. Stable CI uploads now stay in draft until the uploaded APK is checked.
 
 ## Limits of the checks
 

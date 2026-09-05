@@ -106,6 +106,8 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_NAME }}
+          # Verify the exact uploaded stable APK before making it public.
+          draft: ${{ github.ref_type == 'tag' }}
           prerelease: ${{ env.PRERELEASE }}
           make_latest: ${{ env.MAKE_LATEST }}
           target_commitish: ${{ github.sha }}

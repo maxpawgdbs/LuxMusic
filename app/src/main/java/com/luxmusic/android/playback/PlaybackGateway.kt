@@ -2,7 +2,6 @@ package com.luxmusic.android.playback
 
 import android.content.Context
 import android.content.Intent
-import androidx.core.content.ContextCompat
 import com.luxmusic.android.data.PlaybackState
 import com.luxmusic.android.AppMessages
 import com.luxmusic.android.data.Track
@@ -23,7 +22,7 @@ class PlaybackGateway(context: Context, private val messages: AppMessages = AppM
     fun restorePlayback() {
         messages.attempt("Не удалось восстановить воспроизведение.") {
             if (PlaybackController.hasPersistedQueue(appContext)) {
-                send(action = PlaybackSessionService.ACTION_RESTORE, foreground = true)
+                send(action = PlaybackSessionService.ACTION_RESTORE)
             }
         }
     }
@@ -37,7 +36,6 @@ class PlaybackGateway(context: Context, private val messages: AppMessages = AppM
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         send(
             action = PlaybackSessionService.ACTION_PLAY_COLLECTION,
-            foreground = true,
         ) {
             putStringArrayListExtra(
                 PlaybackSessionService.EXTRA_TRACK_IDS,
@@ -96,18 +94,17 @@ class PlaybackGateway(context: Context, private val messages: AppMessages = AppM
 
     private fun send(
         action: String,
-        foreground: Boolean = false,
         extras: Intent.() -> Unit = {},
     ) {
         val intent = Intent(appContext, PlaybackSessionService::class.java)
             .setAction(action)
             .apply(extras)
         messages.attempt("Не удалось запустить плеер. Откройте приложение и повторите действие.") {
-            if (foreground) {
-                ContextCompat.startForegroundService(appContext, intent)
-            } else {
-                appContext.startService(intent)
-            }
+            // These commands originate in the visible UI. A restored queue may
+            // be paused, empty or contain missing files, so it cannot promise to
+            // enter foreground playback before Android's five-second deadline.
+            // MediaSessionService promotes itself when playback actually starts.
+            appContext.startService(intent)
         }
     }
 

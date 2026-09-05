@@ -45,3 +45,7 @@ Build its test APK with `./gradlew -Pluxmusic.emulator=true -Pluxmusic.upgradeTe
 3. Install the new signed release with `adb install -r new-release.apk`, without uninstalling or clearing data.
 4. Run the same instrumentation command with `-e upgradePhase verify`. It checks exact audio bytes, the original path and ID, track metadata and playlist membership.
 5. Open the application and check that the track and playlist appear. Rebuild without `luxmusic.upgradeTest` for the regular AndroidX regression suite.
+
+Repeat the cold-start check with `-e upgradePhase preparePausedQueue` and then `prepareMissingQueue` on the disposable fixture installation. After each preparation, launch the app and leave it open for at least 15 seconds, then verify that the library is visible and the process is still alive. This covers Android's delayed foreground-service timeout: UI commands use `startService`, while Media3 promotes actual playback itself. Restoring a paused or missing queue must not promise immediate foreground playback.
+
+Stable tag builds upload their signed APK to a draft GitHub release. Download that exact asset, verify its signature and upgrade/cold-start behavior, and only then publish the draft. Branch builds continue to update the automatic Edge prerelease.

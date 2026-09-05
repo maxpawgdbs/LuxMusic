@@ -46,6 +46,13 @@ public final class UpgradeFixtureInstrumentation extends Instrumentation {
                 JSONObject root = new JSONObject().put("tracks", new JSONArray().put(track))
                     .put("playlists", new JSONArray().put(playlist)).put("artistArtworks", new JSONObject());
                 write(manifest, root.toString().getBytes(StandardCharsets.UTF_8));
+            } else if ("preparePausedQueue".equals(phase) || "prepareMissingQueue".equals(phase)) {
+                check(audio.isFile(), "Requires the disposable upgrade fixture");
+                String id = "preparePausedQueue".equals(phase) ? "upgrade-07-fixture" : "missing-upgrade-fixture";
+                check(getTargetContext().getSharedPreferences("luxmusic_playback_state", 0).edit().clear()
+                    .putString("queue_ids", id).putString("current_track_id", id)
+                    .putString("queue_title", "Upgrade queue").putBoolean("play_when_ready", false).commit(),
+                    "Cannot prepare saved queue");
             } else if ("verify".equals(phase)) {
                 check(Arrays.equals(wave(), read(audio)), "Audio bytes changed after APK update");
                 JSONObject root = new JSONObject(new String(read(manifest), StandardCharsets.UTF_8));
@@ -56,7 +63,7 @@ public final class UpgradeFixtureInstrumentation extends Instrumentation {
                 check("Existing playlist".equals(playlist.getString("name")), "Playlist name changed");
                 check("upgrade-07-fixture".equals(playlist.getJSONArray("trackIds").getString(0)), "Playlist membership changed");
             } else {
-                throw new IllegalArgumentException("Pass -e upgradePhase seed or verify");
+                throw new IllegalArgumentException("Pass -e upgradePhase seed, verify, preparePausedQueue or prepareMissingQueue");
             }
             result.putString("stream", "\nUpgrade " + phase + " OK\n");
             finish(Activity.RESULT_OK, result);
