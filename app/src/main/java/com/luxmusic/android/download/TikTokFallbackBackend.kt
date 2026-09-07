@@ -25,7 +25,7 @@ internal class TikTokFallbackBackend(
         require(DownloadParsing.detectService(requestUrl) == DownloadService.TIKTOK)
         val response = http.getText(
             "https://tikwm.com/api/?url=" + URLEncoder.encode(requestUrl, "UTF-8"),
-            mapOf("Accept" to "application/json", "User-Agent" to "LuxMusic/0.7 (Android)"),
+            mapOf("Accept" to "application/json", "User-Agent" to "LuxMusic/0.7.1 (Android)"),
         ) ?: error("Резервный сервис TikTok временно недоступен. Повторите попытку позже.")
         val media = parseResponse(response)
         // FFmpeg extracts the clip's audio and also supports a photo post's music URL.

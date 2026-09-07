@@ -28,7 +28,7 @@ internal object DownloadParsing {
             val parsed = URL(url)
             parsed.protocol.equals("http", ignoreCase = true) ||
                 parsed.protocol.equals("https", ignoreCase = true)
-        }.getOrDefault(false) && runCatching { URL(url).host.isNotBlank() }.getOrDefault(false)
+        }.getOrDefault(false) && runCatching { URL(url).let { it.host.isNotBlank() && it.userInfo == null } }.getOrDefault(false)
     }
 
     fun detectService(url: String): DownloadService {
@@ -37,17 +37,45 @@ internal object DownloadParsing {
             return DownloadService.YOUTUBE
         }
 
-        val host = runCatching { URL(normalized).host.lowercase().removeSuffix(".") }.getOrNull()
+        val parsed = runCatching { URL(normalized) }.getOrNull()
             ?: return DownloadService.UNKNOWN
+        if (RemoteDownloadClassifier.isAudioUrl(normalized)) return DownloadService.DIRECT_FILE
+        val host = parsed.host.lowercase().removeSuffix(".")
+        val path = parsed.path.lowercase()
         return when {
             host.matchesDomain("tiktok.com") -> DownloadService.TIKTOK
-            host.matchesDomain("soundcloud.com") -> DownloadService.SOUNDCLOUD
+            host.matchesDomain("soundcloud.com") || host.matchesDomain("on.soundcloud.com") -> DownloadService.SOUNDCLOUD
             host.matchesDomain("youtube.com") || host.matchesDomain("youtu.be") -> DownloadService.YOUTUBE
             host.matchesDomain("music.yandex.ru") || host.matchesDomain("music.yandex.com") ->
                 DownloadService.YANDEX_MUSIC
-            host.matchesDomain("vk.com") || host.matchesDomain("vk.ru") -> DownloadService.VK_MUSIC
+            host.matchesDomain("vkvideo.ru") || host.matchesDomain("vkvideo.com") ||
+                ((host.matchesDomain("vk.com") || host.matchesDomain("vk.ru")) &&
+                    (Regex("^/(?:video|clip)").containsMatchIn(path) ||
+                        Regex("(?:^|&)(?:z|w)=(?:video|clip)(?:%2d|-|%2f|/|\\d)", RegexOption.IGNORE_CASE)
+                            .containsMatchIn(parsed.query.orEmpty()))) -> DownloadService.VK_VIDEO
+            host.matchesDomain("vk.com") || host.matchesDomain("vk.ru") || host.matchesDomain("vk.music") -> DownloadService.VK_MUSIC
             host.matchesDomain("music.apple.com") -> DownloadService.APPLE_MUSIC
-            host.matchesDomain("open.spotify.com") -> DownloadService.SPOTIFY
+            host.matchesDomain("spotify.com") || host.matchesDomain("spotify.link") || host == "spoti.fi" -> DownloadService.SPOTIFY
+            host.matchesDomain("bandcamp.com") -> DownloadService.BANDCAMP
+            host.matchesDomain("instagram.com") || host.matchesDomain("instagr.am") -> DownloadService.INSTAGRAM
+            host.matchesDomain("audiomack.com") -> DownloadService.AUDIOMACK
+            host.matchesDomain("jamendo.com") -> DownloadService.JAMENDO
+            host.matchesDomain("jiosaavn.com") || host.matchesDomain("saavn.com") -> DownloadService.JIOSAAVN
+            host.matchesDomain("rutube.ru") -> DownloadService.RUTUBE
+            host.matchesDomain("dzen.ru") || host.matchesDomain("frontend.vh.yandex.ru") ||
+                ((host.matchesDomain("yandex.ru") || host.matchesDomain("yandex.com")) &&
+                    (path.startsWith("/video/") || path.startsWith("/portal/video") || path.startsWith("/portal/efir") ||
+                        parsed.query.orEmpty().contains("stream_id=") || host.startsWith("zen."))) -> DownloadService.YANDEX_VIDEO
+            host.matchesDomain("deezer.com") || host.matchesDomain("deezer.page.link") -> DownloadService.DEEZER
+            host.matchesDomain("boomplay.com") -> DownloadService.BOOMPLAY
+            host.matchesDomain("anghami.com") -> DownloadService.ANGHAMI
+            host.matchesDomain("pandora.com") -> DownloadService.PANDORA
+            host.matchesDomain("zvuk.com") || host.matchesDomain("sber-zvuk.com") -> DownloadService.ZVUK
+            host.matchesDomain("music.mts.ru") || host.matchesDomain("music.kion.ru") -> DownloadService.KION_MUSIC
+            AMAZON_MUSIC_HOSTS.any { host.matchesDomain(it) } -> DownloadService.AMAZON_MUSIC
+            host.matchesDomain("tidal.com") -> DownloadService.TIDAL
+            host.matchesDomain("qobuz.com") -> DownloadService.QOBUZ
+            host.matchesDomain("beatport.com") -> DownloadService.BEATPORT
             else -> DownloadService.UNKNOWN
         }
     }
@@ -311,6 +339,12 @@ internal object DownloadParsing {
     private fun String.matchesDomain(domain: String): Boolean {
         return this == domain || endsWith(".$domain")
     }
+
+    private val AMAZON_MUSIC_HOSTS = listOf(
+        "music.amazon.com", "music.amazon.co.uk", "music.amazon.de", "music.amazon.fr",
+        "music.amazon.it", "music.amazon.es", "music.amazon.co.jp", "music.amazon.in",
+        "music.amazon.ca", "music.amazon.com.au", "music.amazon.com.br", "music.amazon.com.mx", "amzn.to",
+    )
 
     internal data class AppleMusicLookupKey(
         val countryCode: String?,

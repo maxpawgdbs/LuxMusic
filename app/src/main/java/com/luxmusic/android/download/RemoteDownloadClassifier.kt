@@ -4,6 +4,13 @@ import com.luxmusic.android.data.ImportFileRules
 import java.net.URI
 
 internal object RemoteDownloadClassifier {
+    val audioExtensions = setOf("mp3", "m4a", "aac", "ogg", "opus", "wav", "flac")
+
+    fun isAudioUrl(value: String): Boolean {
+        val path = runCatching { URI(value).path.orEmpty() }.getOrDefault("")
+        return path.substringAfterLast('.').lowercase() in audioExtensions
+    }
+
     fun isArchiveUrl(value: String): Boolean {
         val path = runCatching { URI(value).path.orEmpty() }.getOrDefault("")
         return path.endsWith(".zip", ignoreCase = true)

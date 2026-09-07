@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
 import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
@@ -79,7 +80,7 @@ class LinkDownloader(
             Log.e(TAG, "yt-dlp initialization failed", error)
             mutableState.value = DownloadState(
                 isAvailable = true,
-                statusMessage = "Обычный загрузчик не инициализировался, но ZIP и Яндекс Музыка доступны.",
+                statusMessage = "Обычный загрузчик не инициализировался, но прямые аудиофайлы, ZIP и Яндекс Музыка доступны.",
                 errorMessage = error.message ?: error::class.java.simpleName,
             )
         }
@@ -110,9 +111,14 @@ class LinkDownloader(
             if (YandexMusicUrlParser.hasYandexMusicHost(normalizedUrl)) {
                 return@withContext downloadYandex(normalizedUrl)
             }
-            if (shouldImportAsArchive(normalizedUrl)) {
+            if (RemoteDownloadClassifier.isArchiveUrl(normalizedUrl)) {
                 return@withContext downloadArchiveExclusive(normalizedUrl)
                     .map { tracks -> DownloadCollectionResult(tracks = tracks) }
+            }
+            val source = DownloadParsing.detectService(normalizedUrl)
+            if (DownloadParsing.isDownloadableUrl(normalizedUrl) &&
+                (source == DownloadService.DIRECT_FILE || source == DownloadService.UNKNOWN)) {
+                downloadRemoteFileIfMedia(normalizedUrl)?.let { return@withContext it }
             }
             downloadGeneric(normalizedUrl).map { tracks -> DownloadCollectionResult(tracks = tracks) }
         } finally {
@@ -181,6 +187,12 @@ class LinkDownloader(
             return@withContext Result.failure(error)
         }
 
+        val sourceService = DownloadParsing.detectService(normalizedUrl)
+        if (DownloadPlatformPolicy.mode(sourceService) == PlatformDownloadMode.DEFERRED) {
+            val error = IllegalArgumentException(DownloadPlatformPolicy.hint(sourceService))
+            mutableState.value = mutableState.value.copy(errorMessage = error.message, isRunning = false)
+            return@withContext Result.failure(error)
+        }
         if (!initialized) initialize()
         if (!initialized) {
             return@withContext Result.failure(
@@ -188,7 +200,6 @@ class LinkDownloader(
             )
         }
 
-        val sourceService = DownloadParsing.detectService(normalizedUrl)
         mutableState.value = mutableState.value.copy(
             isRunning = true,
             progress = 0f,
@@ -385,63 +396,45 @@ class LinkDownloader(
     private fun downloadAlreadyRunningError(): IllegalStateException =
         IllegalStateException("Дождитесь завершения текущей загрузки.")
 
-    private fun shouldImportAsArchive(url: String): Boolean {
-        if (RemoteDownloadClassifier.isArchiveUrl(url)) return true
-        if (DownloadParsing.detectService(url) != DownloadService.UNKNOWN) return false
-        if (!url.startsWith("https://", ignoreCase = true)) return false
-
-        mutableState.value = mutableState.value.copy(
-            isRunning = true,
-            progress = 0.01f,
-            statusMessage = "Проверяем тип ссылки...",
-            errorMessage = null,
-        )
-        return runCatching {
-            val head = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "HEAD"
-                instanceFollowRedirects = true
-                connectTimeout = ARCHIVE_PROBE_TIMEOUT_MS
-                readTimeout = ARCHIVE_PROBE_TIMEOUT_MS
-                setRequestProperty("User-Agent", ARCHIVE_USER_AGENT)
-            }
-            try {
-                if (head.responseCode in 200..399 && RemoteDownloadClassifier.isArchiveResponse(
-                        contentType = head.contentType,
-                        contentDisposition = head.getHeaderField("Content-Disposition"),
-                    )
-                ) {
-                    return@runCatching true
+    private suspend fun downloadRemoteFileIfMedia(url: String): Result<DownloadCollectionResult>? {
+        val workspaces = CacheWorkspaceManager(context.cacheDir)
+        var workspace: File? = null
+        try {
+            val directory = workspaces.createWorkspace("remote")
+            workspace = directory
+            mutableState.value = mutableState.value.copy(isRunning = true, progress = 0.01f,
+                statusMessage = "Получаем аудиофайл по прямой ссылке...", errorMessage = null)
+            val remote = runInterruptible {
+                RemoteFileTransfer().downloadIfMedia(url, directory) { progress ->
+                    mutableState.value = mutableState.value.copy(progress = progress * 0.9f)
                 }
-            } finally {
-                head.disconnect()
             }
-
-            val range = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                instanceFollowRedirects = true
-                connectTimeout = ARCHIVE_PROBE_TIMEOUT_MS
-                readTimeout = ARCHIVE_PROBE_TIMEOUT_MS
-                setRequestProperty("User-Agent", ARCHIVE_USER_AGENT)
-                setRequestProperty("Range", "bytes=0-3")
+            if (remote == null) {
+                if (DownloadParsing.detectService(url) == DownloadService.DIRECT_FILE)
+                    throw IllegalArgumentException("По ссылке получена веб-страница, а не аудиофайл.")
+                return null
             }
-            try {
-                if (range.responseCode !in 200..299) return@runCatching false
-                val header = range.inputStream.use { input ->
-                    ByteArray(4).also { bytes ->
-                        var offset = 0
-                        while (offset < bytes.size) {
-                            val read = input.read(bytes, offset, bytes.size - offset)
-                            if (read < 0) break
-                            offset += read
-                        }
-                        if (offset != bytes.size) return@runCatching false
-                    }
+            currentCoroutineContext().ensureActive()
+            val tracks = if (remote.kind == RemoteFileKind.ZIP) {
+                libraryStore.importDownloadedArchive(remote.file, sourceUrl = url)
+            } else {
+                check(MetadataExtractor(context).probeDurationMs(remote.file) > 0) {
+                    "Получен повреждённый или неподдерживаемый аудиофайл."
                 }
-                RemoteDownloadClassifier.hasZipSignature(header)
-            } finally {
-                range.disconnect()
+                libraryStore.importDownloadedFiles(listOf(remote.file), sourceUrl = url) { emptyList() }
             }
-        }.getOrDefault(false)
+            check(tracks.isNotEmpty()) { "В полученном файле нет поддерживаемой музыки." }
+            mutableState.value = mutableState.value.copy(progress = 1f, isRunning = false,
+                statusMessage = "По прямой ссылке сохранено ${tracks.size} трек(ов).", errorMessage = null)
+            return Result.success(DownloadCollectionResult(tracks))
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            if (DownloadParsing.detectService(url) == DownloadService.UNKNOWN &&
+                error is RemoteFileHttpException && error.status in setOf(403, 406)) return null
+            mutableState.value = mutableState.value.copy(isRunning = false, progress = 0f,
+                errorMessage = DownloadFailureText.from(error, "Не удалось скачать аудиофайл."))
+            return Result.failure(error)
+        } finally { workspace?.let(workspaces::cleanup) }
     }
 
     private fun successMessage(result: DownloadExecutionResult): String {
@@ -512,6 +505,7 @@ class LinkDownloader(
                         val output = StringBuilder()
                         val buffer = CharArray(8 * 1_024)
                         while (output.length < MAX_RESPONSE_CHARS) {
+                            if (Thread.currentThread().isInterrupted) throw InterruptedException("Загрузка отменена.")
                             val read = reader.read(
                                 buffer,
                                 0,
@@ -529,7 +523,7 @@ class LinkDownloader(
         }
 
         private companion object {
-            const val TIMEOUT_MS = 15_000
+            const val TIMEOUT_MS = 8_000
             const val MAX_RESPONSE_CHARS = 1_000_000
         }
     }
@@ -537,7 +531,6 @@ class LinkDownloader(
     private companion object {
         const val ARCHIVE_CONNECT_TIMEOUT_MS = 20_000
         const val ARCHIVE_READ_TIMEOUT_MS = 60_000
-        const val ARCHIVE_PROBE_TIMEOUT_MS = 5_000
         const val ARCHIVE_USER_AGENT = "LuxMusic/Android"
         const val TAG = "LuxMusicDownload"
     }

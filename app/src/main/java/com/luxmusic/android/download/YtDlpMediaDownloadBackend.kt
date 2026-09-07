@@ -26,7 +26,9 @@ internal class YtDlpMediaDownloadBackend(
     override fun update(channel: ExtractorChannel) {
         // The wrapper's updater performs an unbounded URL read. Use the interruptible
         // native updater, which also verifies the official release checksum.
-        youtubeDl.execute(buildUpdateRequest(channel), "luxmusic-update-${UUID.randomUUID()}")
+        val request = buildUpdateRequest(channel)
+        SystemDownloadProxy.forUrl("https://github.com/")?.let { request.addOption("--proxy", it) }
+        youtubeDl.execute(request, "luxmusic-update-${UUID.randomUUID()}")
     }
 
     override fun fetchInfo(
@@ -82,7 +84,7 @@ internal class YtDlpMediaDownloadBackend(
         ffmpegInitialized = true
     }
 
-    private fun buildDownloadRequest(
+    internal fun buildDownloadRequest(
         url: String,
         jobDir: File,
         service: DownloadService,
@@ -98,11 +100,14 @@ internal class YtDlpMediaDownloadBackend(
             .addOption("--restrict-filenames")
             .addOption("--no-mtime")
             .addOption("--abort-on-unavailable-fragments")
-            .addOption("--concurrent-fragments", 4)
+            .addOption("--concurrent-fragments", 8)
+            .addOption("--buffer-size", "256K")
             .addOption("--retries", serviceRequestRetries(service))
             .addOption("--fragment-retries", serviceFragmentRetries(service))
             .addOption("--extractor-retries", serviceExtractorRetries(service))
-            .addOption("--file-access-retries", 3)
+            .addOption("--file-access-retries", 1)
+            .addOption("--retry-sleep", "http:exp=1:8")
+            .addOption("--match-filter", "!is_live")
             .addOption("--max-filesize", "1G")
             .addOption("--socket-timeout", serviceSocketTimeoutSeconds(service))
             .addOption("--sleep-requests", serviceSleepRequestsSeconds(service, session))
@@ -117,7 +122,7 @@ internal class YtDlpMediaDownloadBackend(
                 .addOption("--audio-quality", "0")
         }
 
-        return applySessionOptions(request, jobDir, service, session)
+        return applyRequestOptions(request, url, jobDir, service, session)
     }
 
     private fun buildInfoRequest(
@@ -133,15 +138,17 @@ internal class YtDlpMediaDownloadBackend(
             .addOption("--socket-timeout", serviceSocketTimeoutSeconds(service))
             .addOption("--sleep-requests", serviceSleepRequestsSeconds(service, session))
 
-        return applySessionOptions(request, jobDir, service, session)
+        return applyRequestOptions(request, url, jobDir, service, session)
     }
 
-    private fun applySessionOptions(
+    private fun applyRequestOptions(
         request: YoutubeDLRequest,
+        url: String,
         jobDir: File,
         service: DownloadService,
         session: DownloadSession?,
     ): YoutubeDLRequest {
+        SystemDownloadProxy.forUrl(url)?.let { request.addOption("--proxy", it) }
         if (session == null || service == DownloadService.YOUTUBE) return request
 
         val cookieFile = File(jobDir, "${service.name.lowercase()}-cookies.txt").apply {
@@ -173,24 +180,18 @@ internal class YtDlpMediaDownloadBackend(
         runCatching { jobDir.deleteRecursively() }
     }
 
-    private fun serviceRequestRetries(service: DownloadService): Int = when (service) {
-        DownloadService.YOUTUBE -> 5
-        else -> 3
-    }
+    private fun serviceRequestRetries(service: DownloadService): Int = 2
 
     private fun serviceFragmentRetries(service: DownloadService): Int = 3
 
-    private fun serviceExtractorRetries(service: DownloadService): Int = 2
+    private fun serviceExtractorRetries(service: DownloadService): Int = 1
 
-    private fun serviceSocketTimeoutSeconds(service: DownloadService): Int = 20
+    private fun serviceSocketTimeoutSeconds(service: DownloadService): Int = 12
 
     private fun serviceSleepRequestsSeconds(
         service: DownloadService,
         session: DownloadSession?,
-    ): Int = when (service) {
-        DownloadService.YOUTUBE -> if (session == null) 1 else 0
-        else -> 0
-    }
+    ): Int = 0
 
     private fun String?.normalizedOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 
@@ -206,6 +207,15 @@ internal class YtDlpMediaDownloadBackend(
             return when (service) {
                 DownloadService.YOUTUBE,
                 DownloadService.TIKTOK,
+                DownloadService.SOUNDCLOUD,
+                DownloadService.BANDCAMP,
+                DownloadService.INSTAGRAM,
+                DownloadService.AUDIOMACK,
+                DownloadService.JAMENDO,
+                DownloadService.JIOSAAVN,
+                DownloadService.RUTUBE,
+                DownloadService.VK_VIDEO,
+                DownloadService.YANDEX_VIDEO,
                 DownloadService.UNKNOWN,
                 -> YtDlpRequestProfile(
                     formatSelector = AUDIO_ONLY_FORMAT,
@@ -222,7 +232,7 @@ internal class YtDlpMediaDownloadBackend(
         }
 
         private const val AUDIO_ONLY_FORMAT =
-            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=?none]"
+            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[height<=480][acodec!=?none]/best[acodec!=?none]"
     }
 }
 

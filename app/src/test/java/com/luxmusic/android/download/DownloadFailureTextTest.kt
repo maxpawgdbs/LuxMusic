@@ -32,4 +32,12 @@ class DownloadFailureTextTest {
                 .contains("Недостаточно памяти"),
         )
     }
+
+    @Test fun `missing audio format gets a helpful message without claiming the post is silent`() {
+        val message = DownloadFailureText.forService(com.luxmusic.android.data.DownloadService.INSTAGRAM,
+            IOException("ERROR: Requested format is not available"))
+        assertTrue(message.contains("аудиодорожку"))
+        assertTrue(message.contains("доступ ограничен"))
+        assertFalse(message.contains("ERROR:"))
+    }
 }

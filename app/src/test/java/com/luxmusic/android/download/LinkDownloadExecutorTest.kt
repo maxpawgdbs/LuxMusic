@@ -99,7 +99,7 @@ class LinkDownloadExecutorTest {
         )
 
         assertEquals(DownloadAttemptKind.DIRECT, result.finalAttempt.kind)
-        assertEquals(DownloadService.UNKNOWN, result.finalAttempt.requestService)
+        assertEquals(DownloadService.BANDCAMP, result.finalAttempt.requestService)
     }
 
     @Test

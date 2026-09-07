@@ -55,9 +55,9 @@ data class DownloadState(
 
 enum class DownloadService(
     val title: String,
-    val loginUrl: String,
-    val cookieDomains: List<String>,
-    val requiresAccount: Boolean,
+    val loginUrl: String = "",
+    val cookieDomains: List<String> = emptyList(),
+    val requiresAccount: Boolean = false,
     val accountRecommended: Boolean = false,
 ) {
     YOUTUBE(
@@ -103,6 +103,25 @@ enum class DownloadService(
         cookieDomains = listOf("tiktok.com"),
         requiresAccount = false,
     ),
+    BANDCAMP("Bandcamp"),
+    INSTAGRAM("Instagram"),
+    AUDIOMACK("Audiomack"),
+    JAMENDO("Jamendo"),
+    JIOSAAVN("JioSaavn"),
+    RUTUBE("RuTube"),
+    VK_VIDEO("VK Видео"),
+    YANDEX_VIDEO("Яндекс Видео / Дзен"),
+    DEEZER("Deezer"),
+    BOOMPLAY("Boomplay"),
+    ANGHAMI("Anghami"),
+    AMAZON_MUSIC("Amazon Music"),
+    PANDORA("Pandora"),
+    ZVUK("Звук"),
+    KION_MUSIC("КИОН / МТС Музыка"),
+    TIDAL("Tidal"),
+    QOBUZ("Qobuz"),
+    BEATPORT("Beatport"),
+    DIRECT_FILE("Аудиофайл"),
     UNKNOWN(
         title = "Другая площадка",
         loginUrl = "https://www.google.com",

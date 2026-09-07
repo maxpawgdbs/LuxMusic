@@ -15,11 +15,27 @@ internal class CompositeDownloadMetadataResolver(
     ): DownloadSourceMetadata? {
         if (!DownloadParsing.isDownloadableUrl(url)) return null
 
-        return service.takeIf { it in EXTRACTOR_METADATA_SERVICES }
-            ?.let { backend.fetchInfo(url, it, session) }
-            ?: resolveAppleMusic(url, service)
-            ?: resolveOEmbed(url, service)
-            ?: resolveHtml(url, session)
+        val candidates = sequenceOf<() -> DownloadSourceMetadata?>(
+            { service.takeIf { it in EXTRACTOR_METADATA_SERVICES }?.let { backend.fetchInfo(url, it, session) } },
+            { resolveAppleMusic(url, service) },
+            { resolveDeezer(url, service) },
+            { resolveOEmbed(url, service) },
+            { resolveHtml(url, session) },
+        )
+        return candidates.firstNotNullOfOrNull { candidate ->
+            candidate()?.takeIf { metadata ->
+                !metadata.title.isNullOrBlank() &&
+                    (service !in DownloadPlatformPolicy.catalogServices ||
+                        (!metadata.artist.isNullOrBlank() && !metadata.artist.equals(service.title, true)))
+            }
+        }
+    }
+
+    private fun resolveDeezer(url: String, service: DownloadService): DownloadSourceMetadata? {
+        if (service != DownloadService.DEEZER) return null
+        val id = Regex("/track/(\\d+)(?:[/?#]|$)").find(url)?.groupValues?.get(1) ?: return null
+        return httpClient.getText("https://api.deezer.com/track/$id", mapOf("Accept" to "application/json"))
+            ?.let(CatalogMetadataParser::fromDeezer)
     }
 
     private fun resolveAppleMusic(
@@ -83,7 +99,7 @@ internal class CompositeDownloadMetadataResolver(
         }
 
         return httpClient.getText(url, headers)
-            ?.let(DownloadParsing::htmlToSourceMetadata)
+            ?.let { CatalogMetadataParser.fromHtml(it) ?: DownloadParsing.htmlToSourceMetadata(it) }
     }
 
     private fun oEmbedEndpoint(url: String, service: DownloadService): String? {

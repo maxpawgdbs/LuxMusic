@@ -90,6 +90,6 @@ class DownloadPlannerTest {
         assertFalse(planner.requiresMetadataBeforeDownload(DownloadService.YOUTUBE))
         assertFalse(planner.requiresMetadataBeforeDownload(DownloadService.UNKNOWN))
         assertTrue(planner.requiresMetadataBeforeDownload(DownloadService.SPOTIFY))
-        assertTrue(planner.requiresMetadataBeforeDownload(DownloadService.APPLE_MUSIC))
+        assertFalse(planner.requiresMetadataBeforeDownload(DownloadService.APPLE_MUSIC))
     }
 }

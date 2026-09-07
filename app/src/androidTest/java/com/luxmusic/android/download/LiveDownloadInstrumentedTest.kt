@@ -19,12 +19,17 @@ class LiveDownloadInstrumentedTest {
         val url = InstrumentationRegistry.getArguments().getString("liveDownloadUrl").orEmpty()
         assumeTrue(url.isNotBlank())
         val app = ApplicationProvider.getApplicationContext<LuxMusicApp>()
+        val expectedProxy = InstrumentationRegistry.getArguments().getString("liveExpectedProxy")
+        if (expectedProxy != null) assertEquals(expectedProxy, SystemDownloadProxy.forUrl(url))
+        val started = android.os.SystemClock.elapsedRealtime()
         val result = withTimeout(180_000) { app.linkDownloader.downloadCollection(url) }
         assertTrue(app.linkDownloader.state.value.errorMessage ?: result.exceptionOrNull()?.message, result.isSuccess)
         val tracks = result.getOrThrow().tracks
         try {
             assertTrue(tracks.isNotEmpty())
             assertTrue(tracks.all { File(it.localPath).length() > 0 && it.durationMs > 0 })
+            println("Live download OK: elapsedMs=${android.os.SystemClock.elapsedRealtime() - started}, " +
+                "durationMs=${tracks.map { it.durationMs }}, bytes=${tracks.map { File(it.localPath).length() }}")
         } finally { tracks.forEach { app.libraryStore.deleteTrack(it.id) } }
     }
 }

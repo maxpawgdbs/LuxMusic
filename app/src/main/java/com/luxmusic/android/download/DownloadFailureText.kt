@@ -6,6 +6,9 @@ import com.luxmusic.android.data.DownloadService
 internal object DownloadFailureText {
     fun forService(service: DownloadService, error: Throwable): String {
         val raw = from(error, "Не удалось скачать музыку. Повторите попытку позже.")
+        if (raw.contains("Requested format is not available", true)) {
+            return "Не удалось получить подходящую аудиодорожку. Возможно, запись без звука или доступ ограничен. Попробуйте другую публичную запись."
+        }
         if (service == DownloadService.YOUTUBE) {
             return when {
                 raw.contains("429") || raw.contains("too many requests", true) ->

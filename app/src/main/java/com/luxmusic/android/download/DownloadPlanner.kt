@@ -12,7 +12,7 @@ internal class DownloadPlanner {
         val attempts = mutableListOf<DownloadAttempt>()
 
         if (
-            sourceService in DIRECT_DOWNLOAD_SERVICES &&
+            sourceService in DownloadPlatformPolicy.directServices &&
             (DownloadParsing.isDownloadableUrl(sourceUrl) || sourceUrl.startsWith("ytsearch", ignoreCase = true))
         ) {
             attempts += DownloadAttempt(
@@ -26,12 +26,12 @@ internal class DownloadPlanner {
                 } else {
                     "Пробуем прямую загрузку из ${sourceService.title}."
                 },
-                allowsNightlyRetry = sourceService in NIGHTLY_RETRY_SERVICES,
+                allowsNightlyRetry = sourceService != DownloadService.DIRECT_FILE,
             )
         }
 
         val fallbackQuery = DownloadParsing.buildYoutubeFallbackQuery(metadata)
-        if (fallbackQuery != null && sourceService in YOUTUBE_FALLBACK_SERVICES) {
+        if (fallbackQuery != null && sourceService in DownloadPlatformPolicy.catalogServices) {
             attempts += DownloadAttempt(
                 requestUrl = "ytsearch1:$fallbackQuery",
                 requestService = DownloadService.YOUTUBE,
@@ -39,7 +39,7 @@ internal class DownloadPlanner {
                 kind = DownloadAttemptKind.MATCHED_SEARCH,
                 expectedMetadata = metadata,
                 label = "Подбираем совпадение в YouTube по метаданным ${sourceService.title}.",
-                allowsNightlyRetry = DownloadService.YOUTUBE in NIGHTLY_RETRY_SERVICES,
+                allowsNightlyRetry = true,
             )
         }
 
@@ -52,36 +52,7 @@ internal class DownloadPlanner {
     }
 
     fun requiresMetadataBeforeDownload(service: DownloadService): Boolean {
-        return service in METADATA_ONLY_SERVICES
+        return service in DownloadPlatformPolicy.catalogServices
     }
 
-    private companion object {
-        val DIRECT_DOWNLOAD_SERVICES = setOf(
-            DownloadService.YOUTUBE,
-            DownloadService.TIKTOK,
-            DownloadService.SOUNDCLOUD,
-            DownloadService.UNKNOWN,
-        )
-
-        val YOUTUBE_FALLBACK_SERVICES = setOf(
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
-            DownloadService.APPLE_MUSIC,
-            DownloadService.SPOTIFY,
-        )
-
-        val METADATA_ONLY_SERVICES = setOf(
-            DownloadService.YANDEX_MUSIC,
-            DownloadService.VK_MUSIC,
-            DownloadService.APPLE_MUSIC,
-            DownloadService.SPOTIFY,
-        )
-
-        val NIGHTLY_RETRY_SERVICES = setOf(
-            DownloadService.YOUTUBE,
-            DownloadService.TIKTOK,
-            DownloadService.SOUNDCLOUD,
-            DownloadService.UNKNOWN,
-        )
-    }
 }

@@ -36,10 +36,13 @@ internal class LinkDownloadExecutor(
         }
 
         val sourceService = DownloadParsing.detectService(normalizedUrl)
+        if (DownloadPlatformPolicy.mode(sourceService) == PlatformDownloadMode.DEFERRED) {
+            throw IllegalArgumentException(DownloadPlatformPolicy.hint(sourceService))
+        }
         val sourceSession = sessionProvider(sourceService)
         val sourceMetadata = if (planner.requiresMetadataBeforeDownload(sourceService)) {
             onStatus(0.04f, "Получаем название и исполнителя из ${sourceService.title}.")
-            metadataResolver.resolve(normalizedUrl, sourceService, sourceSession)
+            runInterruptible { metadataResolver.resolve(normalizedUrl, sourceService, sourceSession) }
         } else {
             null
         }
@@ -76,7 +79,19 @@ internal class LinkDownloadExecutor(
 
             lastError = directAttempt.exceptionOrNull()
 
+            // Keep TikTok's fast audio-only extractor first. On extraction failure,
+            // try the alternate provider before spending time on an update/retry.
+            if (lastError is MediaExtractionFailure && attempt.requestService == DownloadService.TIKTOK &&
+                tiktokFallback != null) {
+                onStatus(0.08f, "Пробуем резервный источник TikTok без ожидания обновления.")
+                val fallback = runCatchingCancellable { performAttempt(plan, attempt, null, onStatus, tiktokFallback) }
+                if (fallback.isSuccess) return@withContext DownloadExecutionResult(fallback.getOrThrow(), attempt)
+                val fallbackError = fallback.exceptionOrNull()
+                if (fallbackError !is MediaExtractionFailure) throw fallbackError!!
+            }
+
             if (lastError is MediaExtractionFailure && attempt.allowsNightlyRetry &&
+                ExtractorRecoveryPolicy.shouldUpdate(lastError) &&
                 refreshNightlyExtractorsIfNeeded(attempt.requestService, onStatus)
             ) {
                 val nightlyAttempt = runCatchingCancellable {
@@ -94,18 +109,6 @@ internal class LinkDownloadExecutor(
                     )
                 }
                 lastError = nightlyAttempt.exceptionOrNull()
-            }
-            if (lastError is MediaExtractionFailure && attempt.requestService == DownloadService.TIKTOK &&
-                tiktokFallback != null
-            ) {
-                onStatus(0.08f, "Пробуем резервный источник аудио TikTok.")
-                val fallback = runCatchingCancellable {
-                    performAttempt(plan, attempt, null, onStatus, tiktokFallback)
-                }
-                if (fallback.isSuccess) {
-                    return@withContext DownloadExecutionResult(fallback.getOrThrow(), attempt)
-                }
-                lastError = fallback.exceptionOrNull()
             }
         }
 
@@ -200,9 +203,8 @@ internal class LinkDownloadExecutor(
         val updated = withTimeoutOrNull(extractorUpdateTimeoutMs) {
             runCatchingCancellable { runInterruptible { backend.update(ExtractorChannel.NIGHTLY) } }.isSuccess
         } ?: false
-        if (!updated) {
-            nightlyRefreshAttempted = false
-        }
+        // Even a failed update is attempted only once per downloader instance.
+        // Repeating it for every URL adds latency without fixing network failures.
         return updated
     }
 
@@ -244,6 +246,10 @@ internal class LinkDownloadExecutor(
         service: DownloadService,
     ) {
         val actualDurationMs = audioInspector.probeDurationMs(file)
+        val sidecar = File(file.parentFile, "${file.nameWithoutExtension}.info.json")
+        if (sidecar.isFile && sidecar.length() <= 1_000_000) {
+            DownloadedAudioPolicy.validateMetadata(sidecar.readText(), actualDurationMs)
+        }
 
         if (actualDurationMs <= 0L || file.length() == 0L) {
             throw IllegalStateException("Сервис вернул пустой или неполный аудиофайл.")

@@ -11,13 +11,13 @@ import java.io.IOException
 import java.nio.file.Files
 
 class DownloadRecoveryTest {
-    @Test fun `stalled update is interrupted and tiktok fallback still runs`() = runBlocking {
+    @Test fun `tiktok fallback does not wait for a stalled updater`() = runBlocking {
         val harness = Harness(downloadError = IOException("Extractor unavailable"), fallbackEnabled = true,
             updateDelayMs = 60_000, updateTimeoutMs = 50)
         val result = harness.execute("https://vm.tiktok.com/clip/")
         assertEquals(1, result.tracks.size)
         assertEquals(1, harness.downloads)
-        assertEquals(1, harness.updates)
+        assertEquals(0, harness.updates)
         assertEquals(1, harness.fallbacks)
         assertTrue(harness.workspaces.none(File::exists))
     }
@@ -54,15 +54,29 @@ class DownloadRecoveryTest {
         assertTrue(harness.progress.all { it.isFinite() && it in 0f..1f })
     }
 
-    @Test fun `tiktok fallback runs after extractor retry and retains original source`() = runBlocking {
+    @Test fun `tiktok fallback runs before extractor update and retains original source`() = runBlocking {
         val harness = Harness(downloadError = IOException("Extractor unavailable"), fallbackEnabled = true)
         val source = "https://vm.tiktok.com/clip/"
         val result = harness.execute(source)
-        assertEquals(2, harness.downloads)
-        assertEquals(1, harness.updates)
+        assertEquals(1, harness.downloads)
+        assertEquals(0, harness.updates)
         assertEquals(1, harness.fallbacks)
         assertEquals(source, result.tracks.single().sourceUrl)
         assertTrue(harness.workspaces.none(File::exists))
+    }
+
+    @Test fun `network failure never triggers an extractor update`() = runBlocking {
+        val harness = Harness(downloadError = IOException("The read operation timed out"))
+        assertNotNull(runCatching { harness.execute() }.exceptionOrNull())
+        assertEquals(1, harness.downloads)
+        assertEquals(0, harness.updates)
+    }
+
+    @Test fun `stalled updater is interrupted without delaying later downloads again`() = runBlocking {
+        val harness = Harness(downloadError = IOException("outdated extractor"), updateDelayMs = 60_000, updateTimeoutMs = 30)
+        repeat(2) { assertNotNull(runCatching { harness.execute() }.exceptionOrNull()) }
+        assertEquals(1, harness.updates)
+        assertEquals(2, harness.downloads)
     }
 
     private class Harness(

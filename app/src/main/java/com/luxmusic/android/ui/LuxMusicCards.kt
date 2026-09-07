@@ -64,6 +64,9 @@ import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.RepeatMode
 import com.luxmusic.android.data.Track
+import com.luxmusic.android.download.DownloadParsing
+import com.luxmusic.android.download.DownloadPlatformPolicy
+import com.luxmusic.android.download.PlatformDownloadMode
 import com.luxmusic.android.ui.theme.ArcticBlue
 import com.luxmusic.android.ui.theme.CloudWhite
 import com.luxmusic.android.ui.theme.MidnightBlue
@@ -390,7 +393,10 @@ internal fun DownloadCard(
     val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val canDownload = uiState.download.isAvailable && !uiState.download.isRunning && url.isNotBlank()
+    val source = remember(url) { DownloadParsing.detectService(DownloadParsing.normalizeUserInput(url)) }
+    val sourceMode = DownloadPlatformPolicy.mode(source)
+    val canDownload = uiState.download.isAvailable && !uiState.download.isRunning && url.isNotBlank() &&
+        sourceMode != PlatformDownloadMode.DEFERRED
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -405,7 +411,7 @@ internal fun DownloadCard(
         ) {
             Text("Скачать по ссылке", style = MaterialTheme.typography.titleLarge)
             Text(
-                "YouTube, TikTok, SoundCloud и другие площадки, поддерживаемые yt-dlp. Ссылки из музыкальных каталогов сопоставляются по названию и исполнителю.",
+                "Ссылка на трек, публичное видео или аудиофайл. YouTube, TikTok, SoundCloud, Bandcamp, RuTube, VK Видео, Jamendo, JioSaavn и другие площадки.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -445,6 +451,11 @@ internal fun DownloadCard(
                 ),
                 singleLine = true,
             )
+            if (url.isNotBlank()) {
+                Text(DownloadPlatformPolicy.hint(source), style = MaterialTheme.typography.bodySmall,
+                    color = if (sourceMode == PlatformDownloadMode.DEFERRED) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Button(
                 onClick = onDownload,
                 enabled = canDownload,
@@ -452,7 +463,12 @@ internal fun DownloadCard(
             ) {
                 Icon(Icons.Rounded.Download, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(if (uiState.download.isRunning) "Скачиваем..." else "Скачать и сохранить")
+                Text(when {
+                    uiState.download.isRunning -> "Скачиваем..."
+                    sourceMode == PlatformDownloadMode.CATALOG_MATCH -> "Найти на YouTube и сохранить"
+                    sourceMode == PlatformDownloadMode.DEFERRED -> "Площадка пока отложена"
+                    else -> "Скачать и сохранить"
+                })
             }
             if (uiState.download.isRunning) {
                 LinearProgressIndicator(

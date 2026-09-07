@@ -35,11 +35,11 @@ class YtDlpMediaDownloadBackendTest {
         val profile = YtDlpMediaDownloadBackend.requestProfileFor(DownloadService.SOUNDCLOUD)
 
         assertEquals(
-            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[acodec!=?none]",
+            "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio[ext=opus]/bestaudio[ext=webm]/bestaudio/best[height<=480][acodec!=?none]/best[acodec!=?none]",
             profile.formatSelector,
         )
-        assertFalse(profile.extractAudio)
-        assertEquals(null, profile.targetAudioExtension)
+        assertTrue(profile.extractAudio)
+        assertEquals("best", profile.targetAudioExtension)
     }
 
     @Test
