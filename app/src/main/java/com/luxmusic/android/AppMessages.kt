@@ -22,13 +22,15 @@ class AppMessages {
         emit(DownloadFailureText.from(error, fallback))
     }
 
-    inline fun attempt(fallback: String, action: () -> Unit) {
+    inline fun attempt(fallback: String, action: () -> Unit): Boolean {
         try {
             action()
+            return true
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             report(error, fallback)
+            return false
         }
     }
 }

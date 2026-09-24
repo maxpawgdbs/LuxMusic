@@ -20,28 +20,30 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luxmusic.android.ui.LuxMusicScreen
 import com.luxmusic.android.ui.theme.LuxMusicTheme
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleIncomingIntent(intent)
+        viewModel.reportActivityFailure("Не удалось обработать переданную ссылку.") {
+            handleIncomingIntent(intent)
+        }
         enableEdgeToEdge()
-        viewModel.restorePlayback()
+        viewModel.reportActivityFailure("Не удалось восстановить воспроизведение.") {
+            viewModel.restorePlayback()
+        }
 
         setContent {
             LuxMusicTheme {
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
-                val uiScope = rememberCoroutineScope()
+                val actions = remember { UiActionGuards((application as LuxMusicApp).messages) }
                 var pendingImportPlaylistName by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingTrackArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingPlaylistArtworkId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -49,7 +51,9 @@ class MainActivity : ComponentActivity() {
                 val importLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments(),
                 ) { uris ->
-                    viewModel.importAudio(uris, pendingImportPlaylistName)
+                    actions.run("Не удалось импортировать выбранные файлы.") {
+                        viewModel.importAudio(uris, pendingImportPlaylistName)
+                    }
                     pendingImportPlaylistName = null
                 }
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -59,21 +63,33 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.GetContent(),
                 ) { uri ->
                     val trackId = pendingTrackArtworkId
-                    if (uri != null && trackId != null) viewModel.updateTrackArtwork(trackId, uri)
+                    if (uri != null && trackId != null) {
+                        actions.run("Не удалось изменить обложку трека.") {
+                            viewModel.updateTrackArtwork(trackId, uri)
+                        }
+                    }
                     pendingTrackArtworkId = null
                 }
                 val playlistArtworkLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent(),
                 ) { uri ->
                     val playlistId = pendingPlaylistArtworkId
-                    if (uri != null && playlistId != null) viewModel.updatePlaylistArtwork(playlistId, uri)
+                    if (uri != null && playlistId != null) {
+                        actions.run("Не удалось изменить обложку плейлиста.") {
+                            viewModel.updatePlaylistArtwork(playlistId, uri)
+                        }
+                    }
                     pendingPlaylistArtworkId = null
                 }
                 val artistArtworkLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent(),
                 ) { uri ->
                     val artist = pendingArtistArtworkName
-                    if (uri != null && artist != null) viewModel.updateArtistArtwork(artist, uri)
+                    if (uri != null && artist != null) {
+                        actions.run("Не удалось изменить обложку артиста.") {
+                            viewModel.updateArtistArtwork(artist, uri)
+                        }
+                    }
                     pendingArtistArtworkName = null
                 }
 
@@ -97,15 +113,11 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     viewModel.authBrowserRequests.collect { request ->
-                        runCatching {
+                        actions.run("Не удалось открыть страницу авторизации Яндекс Музыки.") {
                             getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
                                 ClipData.newPlainText("Код Яндекс Музыки", request.userCode),
                             )
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(request.url)))
-                        }.onFailure {
-                            snackbarHostState.showSnackbar(
-                                "Код ${request.userCode} скопирован. Откройте ${request.url} в браузере.",
-                            )
                         }
                     }
                 }
@@ -113,11 +125,11 @@ class MainActivity : ComponentActivity() {
                 LuxMusicScreen(
                     uiState = uiState.value,
                     snackbarHostState = snackbarHostState,
-                    onSelectTab = viewModel::selectTab,
-                    onSearchChange = viewModel::updateSearch,
+                    onSelectTab = actions.one("Не удалось открыть этот раздел.", viewModel::selectTab),
+                    onSearchChange = actions.one("Не удалось обновить поиск.", viewModel::updateSearch),
                     onImportClick = { playlistName ->
                         pendingImportPlaylistName = playlistName
-                        runCatching {
+                        val launched = actions.run("Не удалось открыть выбор аудиофайлов.") {
                             importLauncher.launch(
                                 arrayOf(
                                     "audio/*",
@@ -127,50 +139,47 @@ class MainActivity : ComponentActivity() {
                                     "application/octet-stream",
                                 ),
                             )
-                        }.onFailure { error ->
-                            pendingImportPlaylistName = null
-                            uiScope.launch {
-                                snackbarHostState.showSnackbar(
-                                    error.message ?: "Не удалось открыть выбор ZIP или аудиофайлов.",
-                                )
-                            }
                         }
+                        if (!launched) pendingImportPlaylistName = null
                     },
-                    onCreatePlaylist = viewModel::createPlaylist,
-                    onAddTrackToPlaylist = viewModel::addTrackToPlaylist,
-                    onRemoveTrackFromPlaylist = viewModel::removeTrackFromPlaylist,
-                    onUpdatePlaylistName = viewModel::updatePlaylistName,
-                    onUpdateTrackDetails = viewModel::updateTrackDetails,
-                    onPickTrackArtwork = { trackId ->
+                    onCreatePlaylist = actions.one("Не удалось создать плейлист.", viewModel::createPlaylist),
+                    onAddTrackToPlaylist = actions.two("Не удалось добавить трек в плейлист.", viewModel::addTrackToPlaylist),
+                    onRemoveTrackFromPlaylist = actions.two("Не удалось удалить трек из плейлиста.", viewModel::removeTrackFromPlaylist),
+                    onUpdatePlaylistName = actions.two("Не удалось переименовать плейлист.", viewModel::updatePlaylistName),
+                    onUpdateTrackDetails = actions.three("Не удалось сохранить данные трека.", viewModel::updateTrackDetails),
+                    onPickTrackArtwork = actions.one("Не удалось открыть выбор обложки.") { trackId ->
                         pendingTrackArtworkId = trackId
                         viewModel.reportActivityFailure { trackArtworkLauncher.launch("image/*") }
                     },
-                    onPickPlaylistArtwork = { playlistId ->
+                    onPickPlaylistArtwork = actions.one("Не удалось открыть выбор обложки плейлиста.") { playlistId ->
                         pendingPlaylistArtworkId = playlistId
                         viewModel.reportActivityFailure { playlistArtworkLauncher.launch("image/*") }
                     },
-                    onPickArtistArtwork = { artist ->
+                    onPickArtistArtwork = actions.one("Не удалось открыть выбор обложки артиста.") { artist ->
                         pendingArtistArtworkName = artist
                         viewModel.reportActivityFailure { artistArtworkLauncher.launch("image/*") }
                     },
-                    onDeleteTrack = viewModel::deleteTrack,
-                    onDeletePlaylist = viewModel::deletePlaylist,
-                    onPlayTrack = viewModel::playTrack,
-                    onPlayPlaylist = viewModel::playPlaylist,
-                    onPlayPlaylistTrack = viewModel::playPlaylistTrack,
-                    onPlayArtistTrack = viewModel::playArtistTrack,
-                    onSelectQueueTrack = viewModel::selectQueueTrack,
-                    onTogglePlayback = viewModel::togglePlayback,
-                    onSkipPrevious = viewModel::skipPrevious,
-                    onSkipNext = viewModel::skipNext,
-                    onToggleShuffle = viewModel::toggleShuffle,
-                    onCycleRepeat = viewModel::cycleRepeat,
-                    onSeekToFraction = viewModel::seekToFraction,
-                    onDownloadUrlChange = viewModel::updateDownloadUrl,
-                    onDownloadTitleChange = viewModel::updateDownloadTitle,
-                    onDownloadLink = viewModel::downloadFromLink,
-                    onConnectYandex = viewModel::connectYandexMusic,
-                    onDisconnectYandex = viewModel::disconnectYandexMusic,
+                    onDeleteTrack = actions.one("Не удалось удалить трек.", viewModel::deleteTrack),
+                    onDeletePlaylist = actions.one("Не удалось удалить плейлист.", viewModel::deletePlaylist),
+                    onPlayTrack = actions.one("Не удалось включить трек.", viewModel::playTrack),
+                    onPlayPlaylist = actions.one("Не удалось включить плейлист.", viewModel::playPlaylist),
+                    onPlayPlaylistTrack = actions.two("Не удалось включить трек из плейлиста.", viewModel::playPlaylistTrack),
+                    onPlayArtistTrack = actions.two("Не удалось включить трек артиста.", viewModel::playArtistTrack),
+                    onSelectQueueTrack = actions.one("Не удалось переключить трек в очереди.", viewModel::selectQueueTrack),
+                    onTogglePlayback = actions.zero("Не удалось изменить воспроизведение.") { viewModel.togglePlayback() },
+                    onSkipPrevious = actions.zero("Не удалось включить предыдущий трек.") { viewModel.skipPrevious() },
+                    onSkipNext = actions.zero("Не удалось включить следующий трек.") { viewModel.skipNext() },
+                    onToggleShuffle = actions.zero("Не удалось изменить режим перемешивания.") { viewModel.toggleShuffle() },
+                    onCycleRepeat = actions.zero("Не удалось изменить режим повтора.") { viewModel.cycleRepeat() },
+                    onSeekToFraction = actions.one("Не удалось перемотать трек.", viewModel::seekToFraction),
+                    onOpenExternalLink = actions.one("Не удалось открыть внешнюю ссылку.") { url ->
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    },
+                    onDownloadUrlChange = actions.one("Не удалось обновить ссылку.", viewModel::updateDownloadUrl),
+                    onDownloadTitleChange = actions.one("Не удалось обновить название загрузки.", viewModel::updateDownloadTitle),
+                    onDownloadLink = actions.three("Не удалось начать загрузку.", viewModel::downloadFromLink),
+                    onConnectYandex = actions.zero("Не удалось начать вход в Яндекс Музыку.") { viewModel.connectYandexMusic() },
+                    onDisconnectYandex = actions.zero("Не удалось отключить Яндекс Музыку.") { viewModel.disconnectYandexMusic() },
                 )
             }
         }
@@ -178,13 +187,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        viewModel.resumeYandexMusicAuthorization()
+        viewModel.reportActivityFailure("Не удалось продолжить вход в Яндекс Музыку.") {
+            viewModel.resumeYandexMusicAuthorization()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIncomingIntent(intent)
+        viewModel.reportActivityFailure("Не удалось обработать переданную ссылку.") {
+            handleIncomingIntent(intent)
+        }
     }
 
     private fun handleIncomingIntent(intent: Intent?) {

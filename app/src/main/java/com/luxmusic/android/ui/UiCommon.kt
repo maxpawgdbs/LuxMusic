@@ -24,13 +24,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.luxmusic.android.LuxMusicApp
 import com.luxmusic.android.data.RepeatMode
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -98,15 +100,25 @@ internal fun LuxStatChip(icon: ImageVector, value: String, label: String) {
 }
 
 @Composable
-internal fun LuxTelegramBanner() {
+internal fun LuxTelegramBanner(onOpenExternalLink: ((String) -> Unit)? = null) {
     val uriHandler = LocalUriHandler.current
+    val messages = (LocalContext.current.applicationContext as? LuxMusicApp)?.messages
+    val telegramUrl = "https://t.me/luxmusic_gdbs"
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ),
-        onClick = { uriHandler.openUri("https://t.me/luxmusic_gdbs") },
+        onClick = {
+            if (onOpenExternalLink != null) {
+                onOpenExternalLink(telegramUrl)
+            } else if (messages != null) {
+                messages.attempt("Не удалось открыть канал Telegram.") { uriHandler.openUri(telegramUrl) }
+            } else {
+                uriHandler.openUri(telegramUrl)
+            }
+        },
     ) {
         Row(
             modifier = Modifier

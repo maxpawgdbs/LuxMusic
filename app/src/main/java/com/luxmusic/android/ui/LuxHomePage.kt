@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -16,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
@@ -30,11 +33,13 @@ import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,6 +58,9 @@ import com.luxmusic.android.data.Track
 internal fun LuxHomePage(
     contentPadding: PaddingValues,
     uiState: LuxMusicUiState,
+    onImportClick: () -> Unit,
+    onDownloadClick: () -> Unit,
+    onOpenExternalLink: (String) -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -72,6 +80,8 @@ internal fun LuxHomePage(
         item {
             LuxPlayerCard(
                 uiState = uiState,
+                onImportClick = onImportClick,
+                onDownloadClick = onDownloadClick,
                 onTogglePlayback = onTogglePlayback,
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
@@ -85,13 +95,15 @@ internal fun LuxHomePage(
                 onDelete = onDelete,
             )
         }
-        item { LuxTelegramBanner() }
+        item { LuxTelegramBanner(onOpenExternalLink) }
     }
 }
 
 @Composable
 private fun LuxPlayerCard(
     uiState: LuxMusicUiState,
+    onImportClick: () -> Unit,
+    onDownloadClick: () -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -121,7 +133,11 @@ private fun LuxPlayerCard(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             if (currentTrack == null) {
-                Text("Выберите трек в библиотеке", style = MaterialTheme.typography.headlineSmall)
+                LuxEmptyPlayerActions(
+                    libraryIsEmpty = uiState.library.isEmpty(),
+                    onImportClick = onImportClick,
+                    onDownloadClick = onDownloadClick,
+                )
             } else {
                 val trackActions: @Composable () -> Unit = {
                     Box {
@@ -310,6 +326,48 @@ private fun LuxPlayerCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun LuxEmptyPlayerActions(
+    libraryIsEmpty: Boolean,
+    onImportClick: () -> Unit,
+    onDownloadClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = if (libraryIsEmpty) "Ваша музыка начинается здесь" else "Что послушаем дальше?",
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Text(
+            text = if (libraryIsEmpty) {
+                "Добавьте свои аудиофайлы или скачайте музыку по ссылке."
+            } else {
+                "Добавьте новые файлы или найдите трек по ссылке."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(
+            onClick = onImportClick,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Rounded.Add, contentDescription = null)
+            Spacer(Modifier.size(8.dp))
+            Text("Добавить музыку")
+        }
+        OutlinedButton(
+            onClick = onDownloadClick,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Rounded.DownloadForOffline, contentDescription = null)
+            Spacer(Modifier.size(8.dp))
+            Text("Скачать по ссылке")
         }
     }
 }

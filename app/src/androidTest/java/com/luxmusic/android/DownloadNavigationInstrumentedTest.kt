@@ -33,21 +33,44 @@ class DownloadNavigationInstrumentedTest {
     }
 
     @Test
+    fun primaryNavigationHasReadableLabelsAndSettingsStaysOneTapAway() {
+        listOf("Главная", "Библиотека", "Артисты", "Плейлисты", "Загрузка").forEach { label ->
+            composeRule.onNodeWithText(label).assertIsDisplayed()
+        }
+
+        composeRule.onNodeWithContentDescription("Настройки").performClick()
+        composeRule.onNodeWithText("Яндекс Музыка").assertIsDisplayed()
+    }
+
+    @Test
     fun operationFailureAppearsOnScreenAndNavigationStillWorks() {
         val app = ApplicationProvider.getApplicationContext<LuxMusicApp>()
         composeRule.runOnIdle { app.messages.report(java.io.IOException("Тестовая ошибка чтения")) }
         composeRule.onNodeWithText("Тестовая ошибка чтения").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Загрузка").performClick()
+        composeRule.onNodeWithText("Загрузка").performClick()
         composeRule.onNodeWithText("Загрузить файл").assertIsDisplayed()
     }
 
     @Test
     fun rapidlySwitchesBetweenDownloadAndSettingsWithoutCrash() {
         repeat(30) {
-            composeRule.onNodeWithContentDescription("Загрузка").performClick()
+            composeRule.onNodeWithText("Загрузка").performClick()
             composeRule.onNodeWithText("Загрузить файл").assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Настройки").performClick()
             composeRule.onNodeWithText("Яндекс Музыка").assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun failedUiActionCanBeReportedAndScreenRemainsInteractive() {
+        val app = ApplicationProvider.getApplicationContext<LuxMusicApp>()
+        composeRule.runOnIdle {
+            UiActionGuards(app.messages).zero("Не удалось открыть раздел") {
+                throw java.io.IOException("Тестовый сбой интерфейса")
+            }()
+        }
+        composeRule.onNodeWithText("Тестовый сбой интерфейса").assertIsDisplayed()
+        composeRule.onNodeWithText("Загрузка").performClick()
+        composeRule.onNodeWithText("Загрузить файл").assertIsDisplayed()
     }
 }

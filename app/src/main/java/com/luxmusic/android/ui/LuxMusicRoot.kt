@@ -56,6 +56,14 @@ import com.luxmusic.android.data.ArtistCollections
 import com.luxmusic.android.data.Playlist
 import com.luxmusic.android.data.Track
 
+private val primaryNavigationTabs = listOf(
+    LuxTab.HOME,
+    LuxTab.LIBRARY,
+    LuxTab.ARTISTS,
+    LuxTab.PLAYLISTS,
+    LuxTab.DOWNLOAD,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LuxMusicRoot(
@@ -85,6 +93,7 @@ internal fun LuxMusicRoot(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
+    onOpenExternalLink: (String) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
     onDownloadTitleChange: (String) -> Unit,
     onDownloadLink: (String, String, String?) -> Unit,
@@ -216,13 +225,24 @@ internal fun LuxMusicRoot(
                             Icon(Icons.Rounded.Edit, contentDescription = "Переименовать")
                         }
                     }
+                    if (!showQueue) {
+                        IconButton(
+                            onClick = {
+                                openedPlaylistId = null
+                                openedArtistName = null
+                                onSelectTab(LuxTab.SETTINGS)
+                            },
+                        ) {
+                            Icon(Icons.Rounded.Settings, contentDescription = "Настройки")
+                        }
+                    }
                 },
             )
         },
         bottomBar = {
             if (!showQueue) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                    LuxTab.entries.forEach { tab ->
+                    primaryNavigationTabs.forEach { tab ->
                         NavigationBarItem(
                             selected = uiState.selectedTab == tab,
                             onClick = {
@@ -243,6 +263,7 @@ internal fun LuxMusicRoot(
                                     contentDescription = tab.title(),
                                 )
                             },
+                            label = { Text(tab.title()) },
                         )
                     }
                 }
@@ -272,6 +293,9 @@ internal fun LuxMusicRoot(
                     LuxHomePage(
                         contentPadding = paddingValues,
                         uiState = uiState,
+                        onImportClick = { onImportClick(null) },
+                        onDownloadClick = { onSelectTab(LuxTab.DOWNLOAD) },
+                        onOpenExternalLink = onOpenExternalLink,
                         onTogglePlayback = onTogglePlayback,
                         onSkipPrevious = onSkipPrevious,
                         onSkipNext = onSkipNext,

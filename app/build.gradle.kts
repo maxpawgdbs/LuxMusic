@@ -8,8 +8,8 @@ plugins {
 val bundledSigningStoreFile = file("../signing/luxmusic-dev.jks")
 val bundledSigningStorePassword = "luxmusic"
 val bundledSigningKeyAlias = "luxmusic-dev"
-val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.7.1"
-val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 7_001_000
+val baseVersionName = providers.gradleProperty("luxmusic.baseVersion").orNull ?: "0.7.2"
+val appVersionCode = System.getenv("LUXMUSIC_VERSION_CODE")?.toIntOrNull() ?: 7_002_000
 val appVersionName = System.getenv("LUXMUSIC_VERSION_NAME")?.takeUnless { it.isBlank() } ?: baseVersionName
 val emulatorBuild = providers.gradleProperty("luxmusic.emulator").orNull == "true"
 
@@ -42,6 +42,8 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("luxmusic")
+            enableUnitTestCoverage = true
+            enableAndroidTestCoverage = true
         }
         release {
             signingConfig = signingConfigs.getByName("luxmusic")
@@ -123,9 +125,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling:$composeUi")
     debugImplementation("androidx.compose.ui:ui-test-manifest:$composeUi")
 
-    testImplementation(files("libs/junit4.jar"))
+    testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
-    testRuntimeOnly(files("libs/junit4.jar"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")

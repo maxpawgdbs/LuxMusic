@@ -141,9 +141,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restorePlayback() = playbackGateway.restorePlayback()
 
-    fun reportActivityFailure(action: () -> Unit) {
-        messagesFlow.attempt("Не удалось открыть системное окно выбора. Проверьте доступные приложения.", action)
-    }
+    fun reportActivityFailure(
+        fallback: String = "Не удалось открыть системное окно выбора. Проверьте доступные приложения.",
+        action: () -> Unit,
+    ): Boolean = messagesFlow.attempt(fallback, action)
 
     fun importAudio(uris: List<Uri>, playlistName: String? = null) {
         if (uris.isEmpty()) return
