@@ -68,7 +68,7 @@ jobs:
         shell: bash
         run: |
           BASE_VERSION="$(grep '^luxmusic.baseVersion=' gradle.properties | cut -d= -f2)"
-          VERSION_CODE="$((7002000 + GITHUB_RUN_NUMBER))"
+          VERSION_CODE="$((7003000 + GITHUB_RUN_NUMBER))"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION_NAME="${BASE_VERSION}"
             RELEASE_TAG="${GITHUB_REF_NAME}"
@@ -98,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: luxmusic-0.7.2-coverage
+          name: luxmusic-0.7.3-coverage
           path: |
             app/build/reports/coverage
           if-no-files-found: warn
@@ -132,13 +132,11 @@ jobs:
           generate_release_notes: true
           files: ${{ env.RELEASE_FILE }}
           body: |
-            LuxMusic 0.7.2 — обновлённый интерфейс и более надёжная обработка ошибок.
+            LuxMusic 0.7.3 — компактный плеер и обновлённая навигация.
 
-            На пустом плеере доступны быстрые действия «Добавить музыку» и «Скачать по ссылке». Синхронные ошибки действий, системных экранов, внешних ссылок и фоновых задач показываются в уведомлении внутри приложения; отмена задач не подменяется ошибкой.
+            Управление музыкой помещается на главном экране без прокрутки. Очередь доступна рядом с текущим треком. Нижняя панель стала компактнее и показывает только значки; названия разделов доступны как описания кнопок. Настройки открываются в разделе «Загрузка». Баннер канала находится вверху библиотеки, артистов и плейлистов.
 
-            CI запускает JVM- и Android UI/regression tests без Docker и сохраняет отдельные отчёты покрытия обоих типов тестов. Изменений формата библиотеки нет.
-
-            [Изменения 0.7.2](https://github.com/maxpawgdbs/LuxMusic/blob/v0.7.2/docs/release-0.7.2.md)
+            [Изменения 0.7.3](https://github.com/maxpawgdbs/LuxMusic/blob/v0.7.3/docs/release-0.7.3.md)
 
             Установите APK поверх предыдущей версии — не удаляйте приложение. Подпись, applicationId и расположение загруженной музыки сохранены.
 

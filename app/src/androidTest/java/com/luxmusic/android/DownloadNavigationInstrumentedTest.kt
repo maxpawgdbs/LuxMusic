@@ -26,6 +26,7 @@ class DownloadNavigationInstrumentedTest {
 
     @Test
     fun youtubeCookieSettingsAreRemoved() {
+        composeRule.onNodeWithContentDescription("Загрузка").performClick()
         composeRule.onNodeWithContentDescription("Настройки").performClick()
         composeRule.onNodeWithText("Яндекс Музыка").assertIsDisplayed()
         composeRule.onNodeWithText("Импортировать cookies.txt").assertDoesNotExist()
@@ -33,13 +34,27 @@ class DownloadNavigationInstrumentedTest {
     }
 
     @Test
-    fun primaryNavigationHasReadableLabelsAndSettingsStaysOneTapAway() {
+    fun primaryNavigationIsCompactAndSettingsAreOnlyInDownload() {
         listOf("Главная", "Библиотека", "Артисты", "Плейлисты", "Загрузка").forEach { label ->
-            composeRule.onNodeWithText(label).assertIsDisplayed()
+            composeRule.onNodeWithContentDescription(label).assertIsDisplayed()
+            composeRule.onNodeWithText(label).assertDoesNotExist()
         }
 
+        composeRule.onNodeWithContentDescription("Настройки").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Загрузка").performClick()
         composeRule.onNodeWithContentDescription("Настройки").performClick()
         composeRule.onNodeWithText("Яндекс Музыка").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Назад").performClick()
+        composeRule.onNodeWithText("Загрузить файл").assertIsDisplayed()
+    }
+
+    @Test
+    fun bannersAreAtTheTopOfCollectionsAndAbsentFromHome() {
+        composeRule.onNodeWithText("Подписывайтесь на канал разработки!").assertDoesNotExist()
+        listOf("Библиотека", "Артисты", "Плейлисты").forEach { tab ->
+            composeRule.onNodeWithContentDescription(tab).performClick()
+            composeRule.onNodeWithText("Подписывайтесь на канал разработки!").assertIsDisplayed()
+        }
     }
 
     @Test
@@ -47,17 +62,18 @@ class DownloadNavigationInstrumentedTest {
         val app = ApplicationProvider.getApplicationContext<LuxMusicApp>()
         composeRule.runOnIdle { app.messages.report(java.io.IOException("Тестовая ошибка чтения")) }
         composeRule.onNodeWithText("Тестовая ошибка чтения").assertIsDisplayed()
-        composeRule.onNodeWithText("Загрузка").performClick()
+        composeRule.onNodeWithContentDescription("Загрузка").performClick()
         composeRule.onNodeWithText("Загрузить файл").assertIsDisplayed()
     }
 
     @Test
     fun rapidlySwitchesBetweenDownloadAndSettingsWithoutCrash() {
         repeat(30) {
-            composeRule.onNodeWithText("Загрузка").performClick()
+            composeRule.onNodeWithContentDescription("Загрузка").performClick()
             composeRule.onNodeWithText("Загрузить файл").assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Настройки").performClick()
             composeRule.onNodeWithText("Яндекс Музыка").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Назад").performClick()
         }
     }
 
@@ -70,7 +86,7 @@ class DownloadNavigationInstrumentedTest {
             }()
         }
         composeRule.onNodeWithText("Тестовый сбой интерфейса").assertIsDisplayed()
-        composeRule.onNodeWithText("Загрузка").performClick()
+        composeRule.onNodeWithContentDescription("Загрузка").performClick()
         composeRule.onNodeWithText("Загрузить файл").assertIsDisplayed()
     }
 }

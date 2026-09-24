@@ -4,9 +4,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -93,7 +95,6 @@ internal fun LuxMusicRoot(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
-    onOpenExternalLink: (String) -> Unit,
     onDownloadUrlChange: (String) -> Unit,
     onDownloadTitleChange: (String) -> Unit,
     onDownloadLink: (String, String, String?) -> Unit,
@@ -148,6 +149,9 @@ internal fun LuxMusicRoot(
     }
 
     BackHandler(enabled = showQueue) { showQueue = false }
+    BackHandler(enabled = !showQueue && uiState.selectedTab == LuxTab.SETTINGS) {
+        onSelectTab(LuxTab.DOWNLOAD)
+    }
     BackHandler(
         enabled = !showQueue && uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null,
     ) {
@@ -174,97 +178,80 @@ internal fun LuxMusicRoot(
             }
         },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    val title = when {
-                        showQueue -> "Очередь"
-                        openedPlaylist != null -> openedPlaylist.name
-                        openedArtistName != null -> openedArtistName.orEmpty()
-                        uiState.selectedTab == LuxTab.HOME -> ""
-                        else -> uiState.selectedTab.title()
-                    }
-                    if (title.isNotEmpty()) Text(title)
-                },
-                navigationIcon = {
-                    if (
-                        showQueue ||
-                        (uiState.selectedTab == LuxTab.PLAYLISTS && openedPlaylist != null) ||
-                        (uiState.selectedTab == LuxTab.ARTISTS && openedArtistName != null)
-                    ) {
+            if (
+                showQueue || openedPlaylist != null || openedArtistName != null ||
+                uiState.selectedTab == LuxTab.SETTINGS
+            ) {
+                CenterAlignedTopAppBar(
+                    title = {
+                        val title = when {
+                            showQueue -> "Очередь"
+                            openedPlaylist != null -> openedPlaylist.name
+                            openedArtistName != null -> openedArtistName.orEmpty()
+                            else -> uiState.selectedTab.title()
+                        }
+                        Text(title)
+                    },
+                    navigationIcon = {
                         IconButton(
                             onClick = {
                                 when {
                                     showQueue -> showQueue = false
                                     openedPlaylist != null -> openedPlaylistId = null
-                                    else -> openedArtistName = null
+                                    openedArtistName != null -> openedArtistName = null
+                                    else -> onSelectTab(LuxTab.DOWNLOAD)
                                 }
                             },
                         ) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад")
                         }
-                    }
-                },
-                actions = {
-                    if (!showQueue && uiState.selectedTab == LuxTab.HOME) {
-                        IconButton(
-                            onClick = { showQueue = true },
-                            enabled = uiState.playback.queueTrackIds.isNotEmpty(),
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.QueueMusic,
-                                contentDescription = "Открыть очередь",
-                            )
+                    },
+                    actions = {
+                        if (!showQueue && openedPlaylist != null) {
+                            IconButton(
+                                onClick = {
+                                    playlistToRename = openedPlaylist
+                                    playlistName = openedPlaylist.name
+                                },
+                            ) {
+                                Icon(Icons.Rounded.Edit, contentDescription = "Переименовать")
+                            }
                         }
-                    } else if (!showQueue && openedPlaylist != null) {
-                        IconButton(
-                            onClick = {
-                                playlistToRename = openedPlaylist
-                                playlistName = openedPlaylist.name
-                            },
-                        ) {
-                            Icon(Icons.Rounded.Edit, contentDescription = "Переименовать")
-                        }
-                    }
-                    if (!showQueue) {
-                        IconButton(
-                            onClick = {
-                                openedPlaylistId = null
-                                openedArtistName = null
-                                onSelectTab(LuxTab.SETTINGS)
-                            },
-                        ) {
-                            Icon(Icons.Rounded.Settings, contentDescription = "Настройки")
-                        }
-                    }
-                },
-            )
+                    },
+                )
+            }
         },
         bottomBar = {
             if (!showQueue) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                    primaryNavigationTabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = uiState.selectedTab == tab,
-                            onClick = {
-                                openedPlaylistId = null
-                                openedArtistName = null
-                                onSelectTab(tab)
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = when (tab) {
-                                        LuxTab.HOME -> Icons.Rounded.Home
-                                        LuxTab.LIBRARY -> Icons.Rounded.LibraryMusic
-                                        LuxTab.ARTISTS -> Icons.Rounded.Groups
-                                        LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
-                                        LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
-                                        LuxTab.SETTINGS -> Icons.Rounded.Settings
-                                    },
-                                    contentDescription = tab.title(),
-                                )
-                            },
-                            label = { Text(tab.title()) },
-                        )
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    NavigationBar(
+                        modifier = Modifier.height((maxWidth / 5).coerceIn(56.dp, 80.dp)),
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        primaryNavigationTabs.forEach { tab ->
+                            NavigationBarItem(
+                                selected = uiState.selectedTab == tab ||
+                                    (uiState.selectedTab == LuxTab.SETTINGS && tab == LuxTab.DOWNLOAD),
+                                onClick = {
+                                    openedPlaylistId = null
+                                    openedArtistName = null
+                                    onSelectTab(tab)
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = when (tab) {
+                                            LuxTab.HOME -> Icons.Rounded.Home
+                                            LuxTab.LIBRARY -> Icons.Rounded.LibraryMusic
+                                            LuxTab.ARTISTS -> Icons.Rounded.Groups
+                                            LuxTab.PLAYLISTS -> Icons.AutoMirrored.Rounded.QueueMusic
+                                            LuxTab.DOWNLOAD -> Icons.Rounded.DownloadForOffline
+                                            LuxTab.SETTINGS -> Icons.Rounded.Settings
+                                        },
+                                        contentDescription = tab.title(),
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -295,7 +282,7 @@ internal fun LuxMusicRoot(
                         uiState = uiState,
                         onImportClick = { onImportClick(null) },
                         onDownloadClick = { onSelectTab(LuxTab.DOWNLOAD) },
-                        onOpenExternalLink = onOpenExternalLink,
+                        onShowQueue = { showQueue = true },
                         onTogglePlayback = onTogglePlayback,
                         onSkipPrevious = onSkipPrevious,
                         onSkipNext = onSkipNext,
@@ -424,6 +411,7 @@ internal fun LuxMusicRoot(
                         title = uiState.downloadTitle,
                         onTitleChange = onDownloadTitleChange,
                         onImportClick = { showImportDialog = true },
+                        onOpenSettings = { onSelectTab(LuxTab.SETTINGS) },
                         onDownload = { playlistName ->
                             onDownloadLink(
                                 uiState.downloadUrl,

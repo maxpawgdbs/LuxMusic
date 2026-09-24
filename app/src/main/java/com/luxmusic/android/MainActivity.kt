@@ -172,9 +172,6 @@ class MainActivity : ComponentActivity() {
                     onToggleShuffle = actions.zero("Не удалось изменить режим перемешивания.") { viewModel.toggleShuffle() },
                     onCycleRepeat = actions.zero("Не удалось изменить режим повтора.") { viewModel.cycleRepeat() },
                     onSeekToFraction = actions.one("Не удалось перемотать трек.", viewModel::seekToFraction),
-                    onOpenExternalLink = actions.one("Не удалось открыть внешнюю ссылку.") { url ->
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    },
                     onDownloadUrlChange = actions.one("Не удалось обновить ссылку.", viewModel::updateDownloadUrl),
                     onDownloadTitleChange = actions.one("Не удалось обновить название загрузки.", viewModel::updateDownloadTitle),
                     onDownloadLink = actions.three("Не удалось начать загрузку.", viewModel::downloadFromLink),

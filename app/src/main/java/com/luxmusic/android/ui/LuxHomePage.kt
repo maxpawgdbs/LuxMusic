@@ -4,16 +4,16 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
@@ -60,7 +60,7 @@ internal fun LuxHomePage(
     uiState: LuxMusicUiState,
     onImportClick: () -> Unit,
     onDownloadClick: () -> Unit,
-    onOpenExternalLink: (String) -> Unit,
+    onShowQueue: () -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -73,29 +73,29 @@ internal fun LuxHomePage(
     onPickArtwork: (Track) -> Unit,
     onDelete: (Track) -> Unit,
 ) {
-    LazyColumn(
-        contentPadding = pagePadding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        item {
-            LuxPlayerCard(
-                uiState = uiState,
-                onImportClick = onImportClick,
-                onDownloadClick = onDownloadClick,
-                onTogglePlayback = onTogglePlayback,
-                onSkipPrevious = onSkipPrevious,
-                onSkipNext = onSkipNext,
-                onToggleShuffle = onToggleShuffle,
-                onCycleRepeat = onCycleRepeat,
-                onSeekToFraction = onSeekToFraction,
-                onShowLyrics = onShowLyrics,
-                onAddToPlaylist = onAddToPlaylist,
-                onEdit = onEdit,
-                onPickArtwork = onPickArtwork,
-                onDelete = onDelete,
-            )
-        }
-        item { LuxTelegramBanner(onOpenExternalLink) }
+        LuxPlayerCard(
+            uiState = uiState,
+            onImportClick = onImportClick,
+            onDownloadClick = onDownloadClick,
+            onShowQueue = onShowQueue,
+            onTogglePlayback = onTogglePlayback,
+            onSkipPrevious = onSkipPrevious,
+            onSkipNext = onSkipNext,
+            onToggleShuffle = onToggleShuffle,
+            onCycleRepeat = onCycleRepeat,
+            onSeekToFraction = onSeekToFraction,
+            onShowLyrics = onShowLyrics,
+            onAddToPlaylist = onAddToPlaylist,
+            onEdit = onEdit,
+            onPickArtwork = onPickArtwork,
+            onDelete = onDelete,
+        )
     }
 }
 
@@ -104,6 +104,7 @@ private fun LuxPlayerCard(
     uiState: LuxMusicUiState,
     onImportClick: () -> Unit,
     onDownloadClick: () -> Unit,
+    onShowQueue: () -> Unit,
     onTogglePlayback: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -129,8 +130,8 @@ private fun LuxPlayerCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (currentTrack == null) {
                 LuxEmptyPlayerActions(
@@ -140,88 +141,101 @@ private fun LuxPlayerCard(
                 )
             } else {
                 val trackActions: @Composable () -> Unit = {
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "Действия с треком")
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = onShowQueue,
+                            enabled = uiState.playback.queueTrackIds.isNotEmpty(),
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Изменить") },
-                                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onEdit(currentTrack)
-                                },
+                            Icon(
+                                Icons.AutoMirrored.Rounded.QueueMusic,
+                                contentDescription = "Открыть очередь",
                             )
-                            DropdownMenuItem(
-                                text = { Text("Выбрать обложку") },
-                                leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onPickArtwork(currentTrack)
-                                },
-                            )
-                            if (!currentTrack.lyrics.isNullOrBlank()) {
+                        }
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Rounded.MoreVert, contentDescription = "Действия с треком")
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false },
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text("Текст песни") },
-                                    leadingIcon = { Icon(Icons.Rounded.Subtitles, contentDescription = null) },
+                                    text = { Text("Изменить") },
+                                    leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
-                                        onShowLyrics(currentTrack)
+                                        onEdit(currentTrack)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Выбрать обложку") },
+                                    leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onPickArtwork(currentTrack)
+                                    },
+                                )
+                                if (!currentTrack.lyrics.isNullOrBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Текст песни") },
+                                        leadingIcon = { Icon(Icons.Rounded.Subtitles, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onShowLyrics(currentTrack)
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Добавить в плейлист") },
+                                    leadingIcon = {
+                                        Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onAddToPlaylist(currentTrack)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Удалить с устройства") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Rounded.DeleteOutline,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDelete(currentTrack)
                                     },
                                 )
                             }
-                            DropdownMenuItem(
-                                text = { Text("Добавить в плейлист") },
-                                leadingIcon = {
-                                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onAddToPlaylist(currentTrack)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Удалить с устройства") },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Rounded.DeleteOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onDelete(currentTrack)
-                                },
-                            )
                         }
                     }
                 }
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
-                        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             ArtworkThumb(
                                 currentTrack.artworkPath,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f),
+                                modifier = Modifier.size(108.dp),
                             )
                             LuxTrackMeta(
                                 track = currentTrack,
                                 queueTitle = uiState.playback.queueTitle,
+                                modifier = Modifier.weight(1f),
                                 actions = trackActions,
                             )
                         }
                     } else {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(230.dp))
+                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(164.dp))
                             LuxTrackMeta(
                                 track = currentTrack,
                                 queueTitle = uiState.playback.queueTitle,

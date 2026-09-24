@@ -24,11 +24,10 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Button
@@ -84,6 +83,7 @@ internal fun LuxLibraryPage(
         contentPadding = pagePadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { LuxTelegramBanner() }
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -92,26 +92,17 @@ internal fun LuxLibraryPage(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text("Коллекция", style = MaterialTheme.typography.titleLarge)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        LuxStatChip(Icons.Rounded.LibraryMusic, librarySize.toString(), "Треков")
-                        LuxStatChip(
-                            Icons.AutoMirrored.Rounded.QueueMusic,
-                            playlistCount.toString(),
-                            "Плейлистов",
-                        )
-                        LuxStatChip(
-                            Icons.Rounded.Schedule,
-                            formatCollectionDuration(totalDurationMs),
-                            "Общее время",
-                        )
-                    }
+                    Text("Коллекция", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "$librarySize треков · $playlistCount плейлистов · ${formatCollectionDuration(totalDurationMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
@@ -247,7 +238,6 @@ internal fun LuxLibraryPage(
                 }
             }
         }
-        item { LuxTelegramBanner() }
     }
 }
 
@@ -264,6 +254,7 @@ internal fun LuxPlaylistsPage(
         contentPadding = pagePadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { LuxTelegramBanner() }
         if (playlists.isEmpty()) {
             item {
                 LuxInfoCard(
@@ -338,7 +329,6 @@ internal fun LuxPlaylistsPage(
             }
         }
 
-        item { LuxTelegramBanner() }
     }
 }
 
@@ -585,6 +575,7 @@ internal fun LuxArtistsPage(
         contentPadding = pagePadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { LuxTelegramBanner() }
         if (artists.isEmpty()) {
             item {
                 LuxInfoCard(
@@ -655,7 +646,6 @@ internal fun LuxArtistsPage(
                 }
             }
         }
-        item { LuxTelegramBanner() }
     }
 }
 
@@ -1028,6 +1018,7 @@ internal fun LuxDownloadPage(
     title: String,
     onTitleChange: (String) -> Unit,
     onImportClick: () -> Unit,
+    onOpenSettings: () -> Unit,
     onDownload: (String?) -> Unit,
     uiState: LuxMusicUiState,
 ) {
@@ -1039,15 +1030,24 @@ internal fun LuxDownloadPage(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            FilledTonalButton(
-                onClick = onImportClick,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                colors = luxTonalButtonColors(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Rounded.UploadFile, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Загрузить файл")
+                FilledTonalButton(
+                    onClick = onImportClick,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    colors = luxTonalButtonColors(),
+                ) {
+                    Icon(Icons.Rounded.UploadFile, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Загрузить файл")
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Rounded.Settings, contentDescription = "Настройки")
+                }
             }
         }
         item {
