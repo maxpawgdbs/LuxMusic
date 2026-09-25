@@ -51,6 +51,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.LuxTab
@@ -65,6 +66,9 @@ private val primaryNavigationTabs = listOf(
     LuxTab.PLAYLISTS,
     LuxTab.DOWNLOAD,
 )
+
+internal fun primaryNavigationHeight(width: Dp): Dp =
+    (width / 5).coerceIn(56.dp, 80.dp) * 1.5f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,7 +229,7 @@ internal fun LuxMusicRoot(
             if (!showQueue) {
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     NavigationBar(
-                        modifier = Modifier.height((maxWidth / 5).coerceIn(56.dp, 80.dp)),
+                        modifier = Modifier.height(primaryNavigationHeight(maxWidth)),
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
                         primaryNavigationTabs.forEach { tab ->

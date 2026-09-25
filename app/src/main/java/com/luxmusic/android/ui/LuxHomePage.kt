@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
@@ -49,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.luxmusic.android.LuxMusicUiState
 import com.luxmusic.android.data.RepeatMode
@@ -77,7 +80,8 @@ internal fun LuxHomePage(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
     ) {
         LuxPlayerCard(
             uiState = uiState,
@@ -123,7 +127,8 @@ private fun LuxPlayerCard(
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .animateContentSize()
+            .testTag("player-card"),
         shape = MaterialTheme.shapes.extraLarge,
         colors = luxCardColors(),
     ) {
@@ -215,18 +220,21 @@ private fun LuxPlayerCard(
                 }
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        val artworkSize = (maxWidth * 0.9f).coerceAtMost(280.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             ArtworkThumb(
                                 currentTrack.artworkPath,
-                                modifier = Modifier.size(108.dp),
+                                modifier = Modifier
+                                    .size(artworkSize)
+                                    .testTag("player-artwork"),
                             )
                             LuxTrackMeta(
                                 track = currentTrack,
                                 queueTitle = uiState.playback.queueTitle,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.fillMaxWidth(),
                                 actions = trackActions,
                             )
                         }
@@ -235,7 +243,10 @@ private fun LuxPlayerCard(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ArtworkThumb(currentTrack.artworkPath, modifier = Modifier.size(164.dp))
+                            ArtworkThumb(
+                                currentTrack.artworkPath,
+                                modifier = Modifier.size(208.dp).testTag("player-artwork"),
+                            )
                             LuxTrackMeta(
                                 track = currentTrack,
                                 queueTitle = uiState.playback.queueTitle,

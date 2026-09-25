@@ -10,3 +10,21 @@ app/build/
 .tmp/
 .venv/
 .kotlin/
+analytics.settings
+__pycache__/
+*.py[cod]
+
+# Local credentials and Telegram publisher data. Keep scripts and tests tracked.
+.env
+.env.*
+*.env
+!.env.example
+*.secrets.local.json
+*.token
+*.token.*
+telegram-bot-token*
+telegram-bot-credentials*
+telegram-bot.local.*
+telegram-publisher-state.json
+telegram-publisher-state.lock
+.telegram-bot/

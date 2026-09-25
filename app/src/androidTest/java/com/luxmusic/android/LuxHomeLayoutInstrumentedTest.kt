@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.luxmusic.android.data.PlaybackState
@@ -27,7 +30,7 @@ class LuxHomeLayoutInstrumentedTest {
     @get:Rule val composeRule = createComposeRule()
 
     @Test
-    fun playerControlsAndQueueFitWithoutScrollingOnCompactScreen() {
+    fun restoredArtworkIsSmallerAndControlsRemainReachableOnCompactScreen() {
         val track = Track(
             id = "track-1",
             title = "Очень длинное название песни для проверки компактного плеера",
@@ -71,11 +74,18 @@ class LuxHomeLayoutInstrumentedTest {
             }
         }
 
+        val card = composeRule.onNodeWithTag("player-card").getUnclippedBoundsInRoot()
+        val artwork = composeRule.onNodeWithTag("player-artwork").getUnclippedBoundsInRoot()
+        assertEquals(0f, card.top.value, 0.5f)
+        val availableArtworkWidth = card.right - card.left - 32.dp
+        val expectedArtworkWidth = (availableArtworkWidth * 0.9f).coerceAtMost(280.dp)
+        assertEquals(expectedArtworkWidth.value, (artwork.right - artwork.left).value, 1f)
+        composeRule.onNodeWithTag("player-artwork").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Открыть очередь").performScrollTo().performClick()
+        composeRule.onAllNodes(hasScrollAction()).assertCountEquals(1)
         listOf("Перемешать", "Предыдущий", "Играть", "Следующий", "Без повтора").forEach {
-            composeRule.onNodeWithContentDescription(it).assertIsDisplayed()
+            composeRule.onNodeWithContentDescription(it).performScrollTo().assertIsDisplayed()
         }
-        composeRule.onNodeWithContentDescription("Открыть очередь").assertIsDisplayed().performClick()
-        composeRule.onAllNodes(hasScrollAction()).assertCountEquals(0)
         composeRule.onNodeWithText("Подписывайтесь на канал разработки!").assertDoesNotExist()
         assertEquals(1, queueOpens)
     }
